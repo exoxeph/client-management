@@ -10,7 +10,7 @@ ClientManager is a full-featured platform that streamlines the client management
 
 ### 1. Multi-step Client Registration & Verification
 
-- **User Authentication**: JWT-based authentication with email/password login
+- **User Authentication**: JWT-based authentication with email/password login(redundant/yet to do)
 - **Role-based Access**: Different access levels for admin and regular users
 - **Form Validation**: Frontend validation using React state and custom hooks
 - **Secure Routes**: Protected routes requiring authentication via middleware
