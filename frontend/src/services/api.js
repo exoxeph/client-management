@@ -29,26 +29,12 @@ api.interceptors.request.use(
 
 // Add response interceptor to handle common errors
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    return response;
+  },
   (error) => {
-    console.log('API Error Interceptor:', error);
-    
-    // Enhanced error logging
-    if (error.response) {
-      console.log('API Error Response Status:', error.response.status);
-      console.log('API Error Response Data:', error.response.data);
-      console.log('API Error Response Headers:', error.response.headers);
-    } else if (error.request) {
-      console.log('API Error Request (no response received):', error.request);
-    } else {
-      console.log('API Error Message:', error.message);
-    }
-    
-    console.log('Current pathname:', window.location.pathname);
-    
     // Handle 401 Unauthorized errors (token expired, etc.)
     if (error.response && error.response.status === 401) {
-      console.log('401 Unauthorized - Redirecting to login');
       // Clear local storage
       localStorage.removeItem('token');
       localStorage.removeItem('user');
@@ -56,25 +42,19 @@ api.interceptors.response.use(
       // Only redirect to login if we're not already on the login page
       // This prevents redirect loops
       if (!window.location.pathname.includes('/login')) {
-        console.log('Redirecting to login page');
         window.location.href = '/login';
       }
     } else if (error.response && error.response.status === 403) {
-      console.log('403 Forbidden - Not redirecting');
-      // Don't redirect on 403 errors, just log them and pass through to the component
+      // Don't redirect on 403 errors, just pass through to the component
       // Add a custom property to the error to indicate it's a permission error
       error.isPermissionError = true;
-      console.log('Error response data:', error.response.data);
       // Make sure we're not clearing auth data on 403 errors
     } else if (error.response && error.response.status === 404) {
-      console.log('404 Not Found - Not redirecting');
-      // Don't redirect on 404 errors, just log them
+      // Don't redirect on 404 errors
       error.isNotFoundError = true;
     } else if (error.response && error.response.status === 400) {
-      console.log('400 Bad Request - Client Error');
       // Add a custom property to the error to indicate it's a validation error
       error.isValidationError = true;
-      console.log('Validation error details:', error.response.data);
     }
     return Promise.reject(error);
   }

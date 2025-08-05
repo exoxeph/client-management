@@ -1,12 +1,11 @@
 /**
  * Dashboard Controller
- * This file contains methods for dashboard-related operations
+ * This file contains controllers for dashboard-related operations
  */
 
 const User = require('../models/User');
 const Corporate = require('../models/Corporate');
 const Individual = require('../models/Individual');
-const mongoose = require('mongoose');
 
 /**
  * @desc    Get current user profile
@@ -20,38 +19,28 @@ const getMe = async (req, res) => {
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
-
-    // Get profile data based on account type
+    
+    // Get additional profile data based on user role
     let profileData = null;
-    if (user.profileData) {
-      if (user.accountType === 'individual') {
-        const Individual = require('../models/Individual');
-        profileData = await Individual.findById(user.profileData);
-      } else if (user.accountType === 'corporate') {
-        profileData = await Corporate.findById(user.profileData);
-      }
+    
+    if (user.role === 'corporate') {
+      profileData = await Corporate.findOne({ user: user._id });
+    } else if (user.role === 'individual') {
+      profileData = await Individual.findOne({ user: user._id });
     }
-
-    // Ensure role is always included and properly set
-    const userResponse = {
-      id: user._id,
+    
+    res.status(200).json({
+      _id: user._id,
+      name: user.name,
       email: user.email,
-      name: profileData ? 
-        (profileData.fullName || profileData.companyName) : 
-        user.email.split('@')[0],
-      role: user.role || user.accountType, // Fallback to accountType if role is missing
+      role: user.role,
       isVerified: user.isVerified,
-      accountType: user.accountType // Include accountType for additional context
-    };
-    
-    console.log('Returning user data with role:', userResponse.role);
-    
-    res.json({
-      user: userResponse
+      createdAt: user.createdAt,
+      profileData
     });
   } catch (error) {
     console.error('Error fetching user profile:', error);
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: 'Error fetching user profile' });
   }
 };
 
@@ -62,8 +51,9 @@ const getMe = async (req, res) => {
  */
 const getRecentActivity = async (req, res) => {
   try {
-    // Mock data for now - in a real app, this would fetch from a database
-    const mockRecentActivity = [
+    // TODO: Implement real activity tracking
+    // For now, return mock data
+    const mockActivity = [
       {
         id: '1',
         title: 'Login detected',
@@ -86,24 +76,27 @@ const getRecentActivity = async (req, res) => {
         type: 'document'
       }
     ];
-
-    res.json(mockRecentActivity);
+    
+    res.status(200).json(mockActivity);
   } catch (error) {
     console.error('Error fetching recent activity:', error);
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: 'Error fetching recent activity' });
   }
 };
 
 /**
- * @desc    Get unverified corporate users
+ * @desc    Get unverified corporate users with optimized performance
  * @route   GET /api/admin/unverified-corporates
  * @access  Private/Admin
  */
 const getUnverifiedCorporates = async (req, res) => {
   try {
-    const { q, sort = 'newest' } = req.query;
+    // Track performance
+    const startTime = performance.now();
     
-    // Find all unverified corporate users
+    const { page = 1, limit = 10, sort = 'newest', q } = req.query;
+    
+    // Build query with proper indexing support
     let query = {
       role: 'corporate',
       isVerified: false
@@ -111,6 +104,7 @@ const getUnverifiedCorporates = async (req, res) => {
     
     // Apply search filter if provided
     if (q) {
+      // Create a text search query
       query.$or = [
         { 'profileData.companyName': { $regex: q, $options: 'i' } },
         { email: { $regex: q, $options: 'i' } },
@@ -118,37 +112,32 @@ const getUnverifiedCorporates = async (req, res) => {
       ];
     }
     
-    // Find users and populate their profile data
-    let users = await User.find(query)
-      .populate('profileData')
-      .lean();
+    // Determine sort order
+    const sortOption = sort === 'oldest' ? { createdAt: 1 } : { createdAt: -1 };
     
-    // Format the response
+    // Execute count and find operations in parallel for better performance
+    const [total, users] = await Promise.all([
+      User.countDocuments(query),
+      User.find(query)
+        .populate('profileData')
+        .sort(sortOption)
+        .skip((page - 1) * Number(limit))
+        .limit(Number(limit))
+        .lean()
+    ]);
+    
+    // Format document URLs
     const formattedUsers = users.map(user => {
-      // Format document URLs to ensure they're properly accessible
-      let businessLicenseUrl = user.profileData?.documents?.businessLicense?.filePath;
-      let taxDocUrl = user.profileData?.documents?.taxDocument?.filePath;
+      // Format document URLs
+      const businessLicenseUrl = user.profileData?.documents?.businessLicense?.filePath ? 
+        `/api/admin/documents/${user._id}/businessLicense` : null;
       
-      // If paths exist but don't start with /uploads, prepend it
-      if (businessLicenseUrl && !businessLicenseUrl.startsWith('/uploads')) {
-        // Extract just the filename from the path
-        const pathParts = businessLicenseUrl.split(/[\\/]/);
-        const fileName = pathParts[pathParts.length - 1];
-        // Use the correct subdirectory
-        businessLicenseUrl = `/uploads/business-licenses/${fileName}`;
-      }
+      const taxDocUrl = user.profileData?.documents?.taxDocument?.filePath ? 
+        `/api/admin/documents/${user._id}/taxDocument` : null;
       
-      if (taxDocUrl && !taxDocUrl.startsWith('/uploads')) {
-        // Extract just the filename from the path
-        const pathParts = taxDocUrl.split(/[\\/]/);
-        const fileName = pathParts[pathParts.length - 1];
-        // Use the correct subdirectory
-        taxDocUrl = `/uploads/tax-documents/${fileName}`;
-      }
-      
-      // Create direct MongoDB document URLs
-      const businessLicenseMongoUrl = `/api/admin/documents/${user._id}/businessLicense`;
-      const taxDocMongoUrl = `/api/admin/documents/${user._id}/taxDocument`;
+      // Check if MongoDB data is available
+      const hasMongoData = !!(user.profileData?.documents?.businessLicense?.fileData || 
+                            user.profileData?.documents?.taxDocument?.fileData);
       
       return {
         _id: user._id,
@@ -163,27 +152,27 @@ const getUnverifiedCorporates = async (req, res) => {
         docs: {
           businessLicenseUrl,
           taxDocUrl,
-          // Add MongoDB document URLs
-          businessLicenseMongoUrl,
-          taxDocMongoUrl,
-          // Flag to indicate if MongoDB storage is available
-          hasMongoData: !!(user.profileData?.documents?.businessLicense?.fileData || 
-                          user.profileData?.documents?.taxDocument?.fileData)
+          hasMongoData
         }
       };
     });
     
-    // Apply sorting
-    if (sort === 'oldest') {
-      formattedUsers.sort((a, b) => new Date(a.submittedAt) - new Date(b.submittedAt));
-    } else {
-      formattedUsers.sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt));
-    }
+    // Track performance
+    const endTime = performance.now();
     
-    res.json(formattedUsers);
+    res.status(200).json({
+      users: formattedUsers,
+      total,
+      page: Number(page),
+      pages: Math.ceil(total / limit),
+      performance: {
+        executionTime: endTime - startTime,
+        timestamp: new Date().toISOString()
+      }
+    });
   } catch (error) {
-    console.error('Error fetching unverified corporates:', error);
-    res.status(500).json({ message: error.message });
+    console.error('Error fetching unverified corporate users:', error);
+    res.status(500).json({ message: 'Error fetching unverified corporate users' });
   }
 };
 
@@ -194,23 +183,47 @@ const getUnverifiedCorporates = async (req, res) => {
  */
 const approveCorporate = async (req, res) => {
   try {
-    const user = await User.findById(req.params.id);
+    // Track performance
+    const startTime = performance.now();
+    
+    const { id } = req.params;
+    
+    // Find the user
+    const user = await User.findById(id);
     
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
     
     if (user.role !== 'corporate') {
-      return res.status(400).json({ message: 'User is not a corporate account' });
+      return res.status(400).json({ message: 'User is not a corporate user' });
     }
     
+    if (user.isVerified) {
+      return res.status(400).json({ message: 'User is already verified' });
+    }
+    
+    // Update user verification status
     user.isVerified = true;
     await user.save();
     
-    res.json({ success: true, message: 'Corporate account approved successfully' });
+    // Log the approval action
+    console.log(`Corporate user ${id} approved by admin ${req.user.id} at ${new Date().toISOString()}`);
+    
+    // Track performance
+    const endTime = performance.now();
+    
+    res.status(200).json({
+      message: 'Corporate user approved successfully',
+      userId: id,
+      performance: {
+        executionTime: endTime - startTime,
+        timestamp: new Date().toISOString()
+      }
+    });
   } catch (error) {
-    console.error('Error approving corporate account:', error);
-    res.status(500).json({ message: error.message });
+    console.error('Error approving corporate user:', error);
+    res.status(500).json({ message: 'Error approving corporate user' });
   }
 };
 
@@ -221,34 +234,55 @@ const approveCorporate = async (req, res) => {
  */
 const rejectCorporate = async (req, res) => {
   try {
+    // Track performance
+    const startTime = performance.now();
+    
+    const { id } = req.params;
     const { reason } = req.body;
-    const user = await User.findById(req.params.id);
+    
+    // Find the user
+    const user = await User.findById(id);
     
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
     
     if (user.role !== 'corporate') {
-      return res.status(400).json({ message: 'User is not a corporate account' });
+      return res.status(400).json({ message: 'User is not a corporate user' });
     }
     
-    // In a real app, you might want to:
-    // 1. Send an email to the user with the rejection reason
-    // 2. Mark the account as rejected instead of deleting it
-    // 3. Keep a record of the rejection reason
+    if (user.isVerified) {
+      return res.status(400).json({ message: 'Cannot reject a verified user' });
+    }
     
-    // For this example, we'll just delete the user
-    await User.findByIdAndDelete(req.params.id);
+    // Find and delete the corporate profile
+    await Corporate.findOneAndDelete({ user: id });
     
-    res.json({ success: true, message: 'Corporate account rejected successfully' });
+    // Delete the user
+    await User.findByIdAndDelete(id);
+    
+    // Log the rejection action
+    console.log(`Corporate user ${id} rejected by admin ${req.user.id} at ${new Date().toISOString()}. Reason: ${reason || 'Not provided'}`);
+    
+    // Track performance
+    const endTime = performance.now();
+    
+    res.status(200).json({
+      message: 'Corporate user rejected successfully',
+      userId: id,
+      performance: {
+        executionTime: endTime - startTime,
+        timestamp: new Date().toISOString()
+      }
+    });
   } catch (error) {
-    console.error('Error rejecting corporate account:', error);
-    res.status(500).json({ message: error.message });
+    console.error('Error rejecting corporate user:', error);
+    res.status(500).json({ message: 'Error rejecting corporate user' });
   }
 };
 
 /**
- * @desc    Get document image directly from MongoDB
+ * @desc    Get document image
  * @route   GET /api/admin/documents/:userId/:docType
  * @access  Private/Admin
  */
@@ -272,28 +306,128 @@ const getDocumentImage = async (req, res) => {
     // Get the document from the user's profile
     const document = user.profileData?.documents?.[docType];
     
-    if (!document || !document.fileData) {
-      // Try to serve from file system as fallback
-      if (document && document.filePath) {
-        // Extract just the filename from the path and construct a proper URL
-        let filePath = document.filePath;
-        // Extract the subdirectory (business-licenses or tax-documents) and filename
-        const pathParts = filePath.split(/[\\/]/);
-        const fileName = pathParts[pathParts.length - 1];
-        const subDir = docType === 'businessLicense' ? 'business-licenses' : 'tax-documents';
-        // Construct a proper URL path
-        filePath = `/uploads/${subDir}/${fileName}`;
-        return res.redirect(filePath);
-      }
+    if (!document) {
       return res.status(404).json({ message: 'Document not found' });
     }
     
-    // Set the content type and send the file data
-    res.contentType(document.contentType);
-    res.send(document.fileData);
+    // If fileData exists in MongoDB, serve it directly
+    if (document.fileData) {
+      console.log(`Serving ${docType} from MongoDB for user ${userId}`);
+      
+      // Log content type and buffer length for debugging
+      console.log('Content-Type:', document.contentType);
+      console.log('Buffer length:', document.fileData.length);
+      
+      // Set proper headers
+      res.setHeader('Content-Disposition', 'inline');
+      res.setHeader('Content-Type', document.contentType || 'image/png'); // Use a safe fallback
+      
+      // Ensure we're sending a proper buffer
+      return res.send(Buffer.from(document.fileData));
+    }
+    
+    // If no fileData but filePath exists, serve from file system
+    if (document.filePath) {
+      console.log(`Serving ${docType} from file system for user ${userId}`);
+      // Extract just the filename from the path and construct a proper URL
+      let filePath = document.filePath;
+      // Extract the subdirectory (business-licenses or tax-documents) and filename
+      const pathParts = filePath.split(/[\/\\]/);
+      const fileName = pathParts[pathParts.length - 1];
+      const subDir = docType === 'businessLicense' ? 'business-licenses' : 'tax-documents';
+      // Construct a proper URL path
+      filePath = `/uploads/${subDir}/${fileName}`;
+      return res.redirect(filePath);
+    }
+    
+    // If neither fileData nor filePath exists
+    return res.status(404).json({ message: 'Document data not found' });
   } catch (error) {
     console.error('Error fetching document:', error);
     res.status(500).json({ message: error.message });
+  }
+};
+
+/**
+ * @desc    Get unverified corporate users with pagination and caching
+ * @route   GET /api/admin/unverified-corporate-users
+ * @access  Private/Admin
+ */
+const getUnverifiedCorporateUsers = async (req, res) => {
+  try {
+    const { page = 1, limit = 10, sort = 'newest', q } = req.query;
+
+    const sortOption = sort === 'oldest' ? { createdAt: 1 } : { createdAt: -1 };
+    
+    // Build query with proper indexing support
+    let query = {
+      role: 'corporate',
+      isVerified: false
+    };
+    
+    // Apply search filter if provided
+    if (q) {
+      query.$or = [
+        { 'profileData.companyName': { $regex: q, $options: 'i' } },
+        { email: { $regex: q, $options: 'i' } },
+        { 'profileData.headquartersAddress.country': { $regex: q, $options: 'i' } }
+      ];
+    }
+
+    const [total, corporates] = await Promise.all([
+      User.countDocuments(query),
+      User.find(query)
+        .populate('profileData')
+        .sort(sortOption)
+        .skip((page - 1) * Number(limit))
+        .limit(Number(limit))
+        .select('email profileData createdAt')
+        .lean()
+    ]);
+
+    // Format the response
+    const formattedUsers = corporates.map(user => {
+      // Check if documents exist and have either fileData or filePath
+      const hasBusinessLicense = !!(user.profileData?.documents?.businessLicense?.fileData || 
+                                  user.profileData?.documents?.businessLicense?.filePath);
+      const hasTaxDocument = !!(user.profileData?.documents?.taxDocument?.fileData || 
+                              user.profileData?.documents?.taxDocument?.filePath);
+      
+      // Check if MongoDB data is available for either document
+      const hasMongoData = !!(user.profileData?.documents?.businessLicense?.fileData || 
+                           user.profileData?.documents?.taxDocument?.fileData);
+      
+      return {
+        _id: user._id,
+        email: user.email,
+        companyName: user.profileData?.companyName,
+        registrationNumber: user.profileData?.registrationNumber,
+        taxId: user.profileData?.taxId,
+        phone: user.profileData?.companyPhone,
+        country: user.profileData?.headquartersAddress?.country,
+        submittedAt: user.createdAt,
+        status: 'pending',
+        // Add document URLs with proper API endpoints
+        docs: {
+          businessLicenseUrl: hasBusinessLicense ? `/api/admin/documents/${user._id}/businessLicense` : null,
+          taxDocUrl: hasTaxDocument ? `/api/admin/documents/${user._id}/taxDocument` : null,
+          hasMongoData
+        }
+      };
+    });
+
+    res.status(200).json({ 
+      total, 
+      corporates: formattedUsers,
+      page: Number(page),
+      pages: Math.ceil(total / limit),
+      performance: {
+        timestamp: new Date().toISOString()
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching unverified corporate users:', error);
+    res.status(500).json({ message: 'Error fetching unverified corporate users' });
   }
 };
 
@@ -301,6 +435,7 @@ module.exports = {
   getMe,
   getRecentActivity,
   getUnverifiedCorporates,
+  getUnverifiedCorporateUsers,
   approveCorporate,
   rejectCorporate,
   getDocumentImage

@@ -85,6 +85,8 @@ const registerIndividual = async (req, res) => {
  */
 const registerCorporate = async (req, res) => {
   try {
+    console.log('FILES:', req.files);
+    
     // Extract data from request body
     const { 
       companyName, 

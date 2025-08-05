@@ -42,6 +42,7 @@ const indexRoutes = require('./routes/index');
 
 // Routes
 app.use('/api', indexRoutes);
+app.use('/api/documents', require('./routes/document.routes'));
 
 // Error handling middleware
 app.use((err, req, res, next) => {

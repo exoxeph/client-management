@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Card } from './ui/Card';
 import { Button } from './ui/Button';
+import { toast } from 'react-toastify';
 
 // Custom scrollbar styles
 const customScrollbarStyle = {
@@ -41,6 +42,8 @@ export const UnverifiedUsersSection = ({
   handleReject,
   viewDocument,
 }) => {
+  // Get auth token from localStorage
+  const token = localStorage.getItem('token');
   // Add state for filtering and sorting
   const [filterText, setFilterText] = useState('');
   const [sortBy, setSortBy] = useState('date'); // 'date', 'name', 'country'
@@ -393,7 +396,66 @@ export const UnverifiedUsersSection = ({
                               variant={darkMode ? 'outline-dark' : 'outline'}
                               size="sm"
                               className="w-full justify-center"
-                              onClick={() => viewDocument(user.businessLicense || (user.profile?.documents?.businessLicense?.filePath))}
+                              onClick={() => {
+                                const documentUrl = user.businessLicense || (user.profile?.documents?.businessLicense?.filePath);
+                                
+                                if (documentUrl && documentUrl.startsWith('/api/')) {
+                                  // Create a new anchor element to open the document with authorization header
+                                  const link = document.createElement('a');
+                                  link.href = `http://localhost:5000${documentUrl}`;
+                                  link.target = '_blank';
+                                  
+                                  // Use fetch with authorization header instead of direct window.open
+                                  fetch(`http://localhost:5000${documentUrl}`, {
+                                    method: 'GET',
+                                    headers: {
+                                      'Authorization': `Bearer ${token}`
+                                    }
+                                  })
+                                  .then(response => {
+                                    if (!response.ok) {
+                                      throw new Error(`Error fetching document: ${response.status}`);
+                                    }
+                                    return response.blob();
+                                  })
+                                  .then(blob => {
+                                    // Create a blob URL and open it
+                                    const url = window.URL.createObjectURL(blob);
+                                    window.open(url, '_blank');
+                                  })
+                                  .catch(error => {
+                                    console.error('Error viewing document:', error);
+                                    toast.error('Error viewing document. Please try again.');
+                                  });
+                                } else if (documentUrl && documentUrl.includes('localhost:3000\\backend\\uploads')) {
+                                  // Handle the specific format: localhost:3000\backend\uploads\business-licenses\filename.jpg
+                                  // Extract the path after 'uploads'
+                                  const uploadsIndex = documentUrl.indexOf('uploads');
+                                  if (uploadsIndex !== -1) {
+                                    const pathAfterUploads = documentUrl.substring(uploadsIndex);
+                                    // Replace backslashes with forward slashes for URL
+                                    const normalizedPath = pathAfterUploads.replace(/\\/g, '/');
+                                    window.open(`http://localhost:5000/${normalizedPath}`, '_blank');
+                                  } else {
+                                    toast.error('Invalid document path format');
+                                  }
+                                } else if (documentUrl && documentUrl.includes('localhost:3000\\backend\\uploads')) {
+                                  // Handle the specific format: localhost:3000\backend\uploads\tax-documents\filename.jpg
+                                  // Extract the path after 'uploads'
+                                  const uploadsIndex = documentUrl.indexOf('uploads');
+                                  if (uploadsIndex !== -1) {
+                                    const pathAfterUploads = documentUrl.substring(uploadsIndex);
+                                    // Replace backslashes with forward slashes for URL
+                                    const normalizedPath = pathAfterUploads.replace(/\\/g, '/');
+                                    window.open(`http://localhost:5000/${normalizedPath}`, '_blank');
+                                  } else {
+                                    toast.error('Invalid document path format');
+                                  }
+                                } else {
+                                  // Use the existing viewDocument function for non-API URLs
+                                  viewDocument(documentUrl);
+                                }
+                              }}
                             >
                               <svg className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -416,7 +478,42 @@ export const UnverifiedUsersSection = ({
                               variant={darkMode ? 'outline-dark' : 'outline'}
                               size="sm"
                               className="w-full justify-center"
-                              onClick={() => viewDocument(user.taxDocument || (user.profile?.documents?.taxDocument?.filePath))}
+                              onClick={() => {
+                                const documentUrl = user.taxDocument || (user.profile?.documents?.taxDocument?.filePath);
+                                
+                                if (documentUrl && documentUrl.startsWith('/api/')) {
+                                  // Create a new anchor element to open the document with authorization header
+                                  const link = document.createElement('a');
+                                  link.href = `http://localhost:5000${documentUrl}`;
+                                  link.target = '_blank';
+                                  
+                                  // Use fetch with authorization header instead of direct window.open
+                                  fetch(`http://localhost:5000${documentUrl}`, {
+                                    method: 'GET',
+                                    headers: {
+                                      'Authorization': `Bearer ${token}`
+                                    }
+                                  })
+                                  .then(response => {
+                                    if (!response.ok) {
+                                      throw new Error(`Error fetching document: ${response.status}`);
+                                    }
+                                    return response.blob();
+                                  })
+                                  .then(blob => {
+                                    // Create a blob URL and open it
+                                    const url = window.URL.createObjectURL(blob);
+                                    window.open(url, '_blank');
+                                  })
+                                  .catch(error => {
+                                    console.error('Error viewing document:', error);
+                                    toast.error('Error viewing document. Please try again.');
+                                  });
+                                } else {
+                                  // Use the existing viewDocument function for non-API URLs
+                                  viewDocument(documentUrl);
+                                }
+                              }}
                             >
                               <svg className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />

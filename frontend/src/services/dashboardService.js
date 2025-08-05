@@ -42,12 +42,29 @@ const dashboardService = {
     }
   },
   
-  // Get unverified corporate users
+  // Get unverified corporate users with pagination, filtering and sorting
   getUnverifiedCorporates: async (params = {}) => {
     try {
+      // Track performance
+      const startTime = performance.now();
       console.log('Fetching unverified corporates with params:', params);
-      const response = await api.get('/admin/unverified-corporates', { params });
+      
+      // Default parameters if not provided
+      const queryParams = {
+        page: params.page || 1,
+        limit: params.limit || 10,
+        sort: params.sort || 'newest',
+        ...params
+      };
+      
+      // Make API call
+      const response = await api.get('/admin/unverified-corporates', { params: queryParams });
+      
+      // Track performance
+      const endTime = performance.now();
+      console.log(`API call to fetch unverified corporates completed in ${endTime - startTime}ms`);
       console.log('Unverified corporates response:', response.data);
+      
       return response.data;
     } catch (error) {
       console.error('Error fetching unverified corporates:', error);
@@ -58,7 +75,16 @@ const dashboardService = {
   // Approve a corporate user
   approveCorporate: async (userId) => {
     try {
+      // Track performance
+      const startTime = performance.now();
+      console.log(`Approving corporate user with ID: ${userId}`);
+      
       const response = await api.post(`/admin/corporates/${userId}/approve`);
+      
+      // Track performance
+      const endTime = performance.now();
+      console.log(`API call to approve corporate user completed in ${endTime - startTime}ms`);
+      
       return response.data;
     } catch (error) {
       console.error('Error approving corporate user:', error);
@@ -69,7 +95,20 @@ const dashboardService = {
   // Reject a corporate user
   rejectCorporate: async (userId, data = {}) => {
     try {
-      const response = await api.post(`/admin/corporates/${userId}/reject`, data);
+      // Validate userId
+      if (!userId) {
+        throw new Error('User ID is required for rejection');
+      }
+      
+      // Ensure userId is a string
+      const userIdStr = String(userId).trim();
+      
+      // Construct the API URL
+      const apiUrl = `/admin/corporates/${userIdStr}/reject`;
+      
+      // Make the API call
+      const response = await api.post(apiUrl, data);
+      
       return response.data;
     } catch (error) {
       console.error('Error rejecting corporate user:', error);
