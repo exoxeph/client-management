@@ -11,8 +11,7 @@ const {
   getUnverifiedCorporates, 
   getUnverifiedCorporateUsers,
   approveCorporate, 
-  rejectCorporate,
-  getDocumentImage
+  rejectCorporate
 } = require('../controllers/dashboardController');
 const { protect, admin } = require('../middleware/auth');
 
@@ -58,12 +57,6 @@ router.post('/admin/corporates/:id/approve', protect, admin, approveCorporate);
 // @access  Private/Admin
 router.post('/admin/corporates/:id/reject', protect, admin, rejectCorporate);
 
-/**
- * Document Routes
- */
-// @route   GET /api/admin/documents/:userId/:docType
-// @desc    Get document image directly from MongoDB or file system
-// @access  Private/Admin
-router.get('/admin/documents/:userId/:docType', protect, admin, getDocumentImage);
+
 
 module.exports = router;

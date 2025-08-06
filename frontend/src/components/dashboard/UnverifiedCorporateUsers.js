@@ -239,8 +239,9 @@ const UnverifiedCorporateUsers = ({ darkMode }) => {
    * View document
    * @param {string} documentUrl - URL of the document to view
    * @param {boolean} hasMongoData - Whether MongoDB data is available
+   * @param {Object} user - User object containing the ID
    */
-  const viewDocument = useCallback((documentUrl, hasMongoData) => {
+  const viewDocument = useCallback((documentUrl, hasMongoData, user) => {
     // Add more detailed debugging
     console.log('==================== DEBUG START ====================');
     console.log('viewDocument called with:', { documentUrl, hasMongoData });
@@ -279,10 +280,9 @@ const UnverifiedCorporateUsers = ({ darkMode }) => {
     // If hasMongoData is true, construct MongoDB API URL
     if (hasMongoData) {
       console.log('Using MongoDB data path');
-      // Extract corporate ID from the current URL
-      const urlParts = window.location.pathname.split('/');
-      const corporateId = urlParts[urlParts.length - 1];
-      console.log('Extracted corporateId from URL:', corporateId);
+      // Use the user's ID directly instead of trying to extract from URL
+      const corporateId = user._id;
+      console.log('Using corporateId from user object:', corporateId);
       
       // Determine if it's a business license or tax document
       const isBusinessLicense = documentUrl.toLowerCase().includes('business') || 
@@ -351,15 +351,16 @@ const UnverifiedCorporateUsers = ({ darkMode }) => {
     
     // Set up fetch options with authorization
     const fetchOptions = {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Cache-Control': 'no-cache',
-        'Pragma': 'no-cache'
-      },
-      // Add cache control to prevent caching issues
-      cache: 'no-store'
-    };
+  method: 'GET',
+  headers: {
+    'Authorization': `Bearer ${token}`,
+    'Cache-Control': 'no-cache',
+    'Pragma': 'no-cache'
+  },
+  cache: 'no-store'
+};
+
+
     
     console.log('==================== FETCH DEBUG ====================');
     console.log('Fetch options:', { 
@@ -377,6 +378,8 @@ const UnverifiedCorporateUsers = ({ darkMode }) => {
     
     // Use a try-catch block to catch any synchronous errors
     try {
+      console.log('fetchOptions:', fetchOptions);
+      console.log('Token before fetch:', token);
       fetch(timestampedUrl, fetchOptions)
         .then(response => {
           console.log('Fetch response received:', { 
@@ -410,9 +413,24 @@ const UnverifiedCorporateUsers = ({ darkMode }) => {
         })
         .then(blob => {
           console.log('Blob received:', { size: blob.size, type: blob.type });
+          
+          // Check if the blob is valid
+          if (blob.size === 0) {
+            console.error('Empty blob received');
+            throw new Error('Document is empty or invalid');
+          }
+          
+          // Check if the content type is appropriate
+          if (!blob.type || (blob.type !== 'application/octet-stream' && 
+              !blob.type.startsWith('image/') && 
+              !blob.type.startsWith('application/pdf'))) {
+            console.warn('Unexpected blob type:', blob.type);
+            // Continue anyway as the server might not set the correct content type
+          }
+          
           // Create a blob URL
           const url = window.URL.createObjectURL(blob);
-          console.log('Blob URL created');
+          console.log('Blob URL created:', url);
           
           // Create a hidden link and trigger download
           const link = document.createElement('a');
@@ -603,7 +621,8 @@ const UnverifiedCorporateUsers = ({ darkMode }) => {
             <button 
               onClick={() => viewDocument(
                 user.docs?.businessLicenseUrl,
-                user.docs?.hasMongoData
+                user.docs?.hasMongoData,
+                user
               )} 
               className={`flex items-center p-3 rounded-lg transition-colors ${darkMode ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-900'}`}
               disabled={!user.docs?.businessLicenseUrl || loading}
@@ -622,7 +641,8 @@ const UnverifiedCorporateUsers = ({ darkMode }) => {
             <button 
               onClick={() => viewDocument(
                 user.docs?.taxDocUrl,
-                user.docs?.hasMongoData
+                user.docs?.hasMongoData,
+                user
               )} 
               className={`flex items-center p-3 rounded-lg transition-colors ${darkMode ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-900'}`}
               disabled={!user.docs?.taxDocUrl || loading}

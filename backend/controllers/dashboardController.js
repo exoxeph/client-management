@@ -130,10 +130,10 @@ const getUnverifiedCorporates = async (req, res) => {
     const formattedUsers = users.map(user => {
       // Format document URLs
       const businessLicenseUrl = user.profileData?.documents?.businessLicense?.filePath ? 
-        `/api/admin/documents/${user._id}/businessLicense` : null;
+        `/api/documents/business-license/${user._id}` : null;
       
       const taxDocUrl = user.profileData?.documents?.taxDocument?.filePath ? 
-        `/api/admin/documents/${user._id}/taxDocument` : null;
+        `/api/documents/tax-document/${user._id}` : null;
       
       // Check if MongoDB data is available
       const hasMongoData = !!(user.profileData?.documents?.businessLicense?.fileData || 
@@ -281,72 +281,7 @@ const rejectCorporate = async (req, res) => {
   }
 };
 
-/**
- * @desc    Get document image
- * @route   GET /api/admin/documents/:userId/:docType
- * @access  Private/Admin
- */
-const getDocumentImage = async (req, res) => {
-  try {
-    const { userId, docType } = req.params;
-    
-    if (!['businessLicense', 'taxDocument'].includes(docType)) {
-      return res.status(400).json({ message: 'Invalid document type' });
-    }
-    
-    // Find the user and populate their profile data
-    const user = await User.findById(userId)
-      .populate('profileData')
-      .lean();
-    
-    if (!user || user.role !== 'corporate') {
-      return res.status(404).json({ message: 'Corporate user not found' });
-    }
-    
-    // Get the document from the user's profile
-    const document = user.profileData?.documents?.[docType];
-    
-    if (!document) {
-      return res.status(404).json({ message: 'Document not found' });
-    }
-    
-    // If fileData exists in MongoDB, serve it directly
-    if (document.fileData) {
-      console.log(`Serving ${docType} from MongoDB for user ${userId}`);
-      
-      // Log content type and buffer length for debugging
-      console.log('Content-Type:', document.contentType);
-      console.log('Buffer length:', document.fileData.length);
-      
-      // Set proper headers
-      res.setHeader('Content-Disposition', 'inline');
-      res.setHeader('Content-Type', document.contentType || 'image/png'); // Use a safe fallback
-      
-      // Ensure we're sending a proper buffer
-      return res.send(Buffer.from(document.fileData));
-    }
-    
-    // If no fileData but filePath exists, serve from file system
-    if (document.filePath) {
-      console.log(`Serving ${docType} from file system for user ${userId}`);
-      // Extract just the filename from the path and construct a proper URL
-      let filePath = document.filePath;
-      // Extract the subdirectory (business-licenses or tax-documents) and filename
-      const pathParts = filePath.split(/[\/\\]/);
-      const fileName = pathParts[pathParts.length - 1];
-      const subDir = docType === 'businessLicense' ? 'business-licenses' : 'tax-documents';
-      // Construct a proper URL path
-      filePath = `/uploads/${subDir}/${fileName}`;
-      return res.redirect(filePath);
-    }
-    
-    // If neither fileData nor filePath exists
-    return res.status(404).json({ message: 'Document data not found' });
-  } catch (error) {
-    console.error('Error fetching document:', error);
-    res.status(500).json({ message: error.message });
-  }
-};
+
 
 /**
  * @desc    Get unverified corporate users with pagination and caching
@@ -409,8 +344,8 @@ const getUnverifiedCorporateUsers = async (req, res) => {
         status: 'pending',
         // Add document URLs with proper API endpoints
         docs: {
-          businessLicenseUrl: hasBusinessLicense ? `/api/admin/documents/${user._id}/businessLicense` : null,
-          taxDocUrl: hasTaxDocument ? `/api/admin/documents/${user._id}/taxDocument` : null,
+          businessLicenseUrl: hasBusinessLicense ? `/api/documents/business-license/${user._id}` : null,
+          taxDocUrl: hasTaxDocument ? `/api/documents/tax-document/${user._id}` : null,
           hasMongoData
         }
       };
@@ -437,6 +372,5 @@ module.exports = {
   getUnverifiedCorporates,
   getUnverifiedCorporateUsers,
   approveCorporate,
-  rejectCorporate,
-  getDocumentImage
+  rejectCorporate
 };

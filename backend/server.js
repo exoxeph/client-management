@@ -27,9 +27,22 @@ app.use(requestLogger);
 app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:3000',
   credentials: true,
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Cache-Control', 'Pragma'],
   methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS']
 }));
+
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', process.env.FRONTEND_URL || 'http://localhost:3000');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PATCH, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control, Pragma');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204);
+  }
+  next();
+});
+
+app.options('*', cors()); // handles all preflight requests
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -42,7 +55,8 @@ const indexRoutes = require('./routes/index');
 
 // Routes
 app.use('/api', indexRoutes);
-app.use('/api/documents', require('./routes/document.routes'));
+// Document routes are already included in indexRoutes, so this line is redundant
+// app.use('/api/documents', require('./routes/document.routes'));
 
 // Error handling middleware
 app.use((err, req, res, next) => {

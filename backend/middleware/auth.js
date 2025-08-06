@@ -10,24 +10,29 @@ const jwt = require('jsonwebtoken');
  */
 const protect = (req, res, next) => {
   try {
-    // Get token from header
+    // Get token from Authorization header
     const token = req.header('Authorization')?.replace('Bearer ', '');
-    
-    // Check if token exists
+
     if (!token) {
+      console.log('❌ No token found in Authorization header');
       return res.status(401).json({ message: 'No token, authorization denied' });
     }
 
-    // Verify token
+    // Decode and verify token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    
-    // Add user from payload
+
+    // Attach decoded payload to req.user
     req.user = decoded;
+
     next();
   } catch (err) {
+    console.error('❌ Token verification failed:', err.message);
     res.status(401).json({ message: 'Token is not valid' });
   }
 };
+
+module.exports = protect;
+
 
 /**
  * Middleware to check if user is admin
