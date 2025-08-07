@@ -34,8 +34,8 @@ router.patch('/:id/draft', protect, updateDraft);
 // Submit a project (owner only)
 router.post('/:id/submit', protect, submitProject);
 
-// Get project summary (corporate/individual only)
-router.get('/summary', protect, requireRole(['corporate', 'individual']), getProjectSummary);
+// Get project summary (corporate/individual/admin/project_manager)
+router.get('/summary', protect, requireRole(['corporate', 'individual', 'admin', 'project_manager']), getProjectSummary);
 
 // Get all projects for the current user (corporate/individual/admin)
 router.get('/all', protect, requireRole(['corporate', 'individual', 'admin', 'project_manager']), listProjects);

@@ -435,16 +435,32 @@ const getProject = async (req, res) => {
 /**
  * Get project summary (counts by status)
  * @route GET /api/projects/summary
- * @access Private (corporate, individual)
+ * @access Private (corporate, individual, admin, project_manager)
  */
 const getProjectSummary = async (req, res) => {
   try {
-    const { id: userId } = req.user;
+    const { id: userId, role } = req.user;
+    const isAdminQuery = req.query.admin === 'true';
+
+    // Build the match stage based on user role
+    let matchStage = {};
+    
+    // For admin/project_manager with admin=true query param, don't filter by ownerUserId
+    // For corporate/individual users, only show their own projects
+    if ((role === 'admin' || role === 'project_manager') && isAdminQuery) {
+      // Admin and project managers can see all projects
+      // No longer forcing verdict=pending filter for admin users
+      console.log('Admin query detected in summary, showing all projects');
+      // Empty matchStage means no filtering
+    } else {
+      // For non-admin users or admin without admin=true, filter by ownerUserId
+      matchStage = { ownerUserId: new mongoose.Types.ObjectId(userId) };
+    }
 
     // Aggregate projects by status for the current user
     const summary = await Project.aggregate([
-      // Match projects owned by the current user
-      { $match: { ownerUserId: new mongoose.Types.ObjectId(userId) } },
+      // Match projects based on the constructed match stage
+      { $match: matchStage },
       // Group by status and verdict and count
       { $group: {
           _id: { status: '$status', verdict: '$verdict' },
@@ -528,7 +544,7 @@ const listProjects = async (req, res) => {
     const isAllRoute = req.path === '/all';
     const isPendingRoute = req.path === '/pending';
     const { status = 'all', verdict = isPendingRoute ? 'pending' : 'all', q = '', page = 1, limit = 10, sort = 'updatedAt:desc' } = req.query;
-
+    const isAdminQuery = req.query.admin === 'true';
     // Parse pagination parameters (only if not the /all route)
     const pageNum = isAllRoute ? 1 : parseInt(page, 10);
     const limitNum = isAllRoute ? 0 : Math.min(parseInt(limit, 10), 100); // Cap at 100 items, 0 means no limit
@@ -537,7 +553,20 @@ const listProjects = async (req, res) => {
     // Build the filter
     // For admin or project_manager users, don't filter by ownerUserId to see all projects
     // For corporate/individual users, only show their own projects
-    const filter = (role === 'admin' || role === 'project_manager') ? {} : { ownerUserId: userId };
+    let filter = {};
+
+    if (role === 'admin' || role === 'project_manager') {
+      // Admin and project managers can see all projects
+      // No longer forcing verdict=pending filter for admin users
+      if (isAdminQuery) {
+        console.log('Admin query detected, but not forcing verdict filter');
+      }
+    } else {
+      // Limit to user's own projects
+      filter.ownerUserId = userId;
+    }
+
+ 
 
     // Add status filter if not 'all'
     if (status !== 'all') {
@@ -554,13 +583,20 @@ const listProjects = async (req, res) => {
     }
 
     // Add verdict filter if not 'all' or if it's the pending route
+    // Apply verdict filter for all queries including admin=true
     if (verdict !== 'all') {
       filter.verdict = verdict;
     }
 
+
     // Add text search if query is provided
     if (q) {
-      filter['overview.title'] = { $regex: q, $options: 'i' };
+      // Search across multiple fields: title, description, and type
+      filter['$or'] = [
+        { 'overview.title': { $regex: q, $options: 'i' } },
+        { 'overview.description': { $regex: q, $options: 'i' } },
+        { 'overview.type': { $regex: q, $options: 'i' } }
+      ];
     }
 
     // Parse sort parameter
@@ -572,7 +608,7 @@ const listProjects = async (req, res) => {
     // Execute the query with pagination (if not /all route)
     const query = Project.find(filter)
       .sort(sortOptions)
-      .select('ownerUserId ownerRole status verdict overview.title overview.type timelineBudget.endDate updatedAt createdAt projectId'); // Select only needed fields
+      .select('ownerUserId ownerRole status verdict reviews overview timelineBudget updatedAt createdAt projectId')
     
     // Apply pagination if not /all route
     if (!isAllRoute) {
@@ -581,6 +617,9 @@ const listProjects = async (req, res) => {
     
     const projects = await query;
 
+    // Log projects before sending to frontend
+    console.log("✅ Final projects being sent to frontend:", projects);
+    
     // For /all or /pending route, return just the array of projects
     if (isAllRoute || isPendingRoute) {
       return res.status(200).json(projects);
@@ -590,6 +629,7 @@ const listProjects = async (req, res) => {
     // Get total count for pagination
     const total = await Project.countDocuments(filter);
 
+    // The projects are already logged above before the route check
     res.status(200).json({
       items: projects,
       page: pageNum,
@@ -814,6 +854,7 @@ const submitReview = async (req, res) => {
 
     console.log(`Review submission attempt - Project ID: ${projectId}, User ID: ${userId}`);
     console.log('Review data:', { rating, comment });
+    console.log('Request body:', req.body);
 
     // Validate project ID
     if (!mongoose.Types.ObjectId.isValid(projectId)) {
@@ -821,14 +862,14 @@ const submitReview = async (req, res) => {
       return res.status(400).json({ error: 'invalid_request', message: 'Invalid project ID' });
     }
 
-    // Validate review data
-    if (!rating) {
+    // Validate review data - more strict validation
+    if (rating === undefined || rating === null) {
       console.log('Missing rating in review submission');
       return res.status(400).json({ error: 'invalid_request', message: 'Rating is required' });
     }
     
-    if (!comment) {
-      console.log('Missing comment in review submission');
+    if (!comment || comment.trim() === '') {
+      console.log('Missing or empty comment in review submission');
       return res.status(400).json({ error: 'invalid_request', message: 'Comment is required' });
     }
 
@@ -841,7 +882,7 @@ const submitReview = async (req, res) => {
       return res.status(404).json({ error: 'not_found', message: 'Project not found' });
     }
 
-    console.log(`Project found - Title: ${project.title}, Verdict: ${project.verdict}`);
+    console.log(`Project found - Title: ${project.overview?.title || 'Untitled'}, Verdict: ${project.verdict}`);
 
     // Check if project verdict is confirmed
     if (project.verdict !== 'confirmed') {
@@ -849,17 +890,24 @@ const submitReview = async (req, res) => {
       return res.status(400).json({ error: 'invalid_request', message: 'Only confirmed projects can be reviewed' });
     }
 
+    // Convert both IDs to strings for consistent comparison
+    const userIdStr = userId.toString();
+    
     // Check if user has already submitted a review
-    const existingReview = project.reviews.find(review => review.userId.toString() === userId);
+    const existingReview = project.reviews.find(review => {
+      // Ensure review.userId exists and convert to string
+      return review.userId && review.userId.toString() === userIdStr;
+    });
+    
     if (existingReview) {
-      console.log(`User ${userId} has already submitted a review for project ${projectId}`);
+      console.log(`User ${userIdStr} has already submitted a review for project ${projectId}`);
       return res.status(400).json({ error: 'invalid_request', message: 'You have already submitted a review for this project' });
     }
 
     // Add the review to the project
     const newReview = {
       userId,
-      rating,
+      rating: Number(rating), // Ensure rating is a number
       comment,
       createdAt: new Date()
     };
@@ -885,8 +933,8 @@ const submitReview = async (req, res) => {
     res.status(201).json({
       message: 'Review submitted successfully',
       review: {
-        userId,
-        rating,
+        userId: userIdStr, // Use the already converted string ID
+        rating: Number(rating),
         comment,
         createdAt: new Date().toISOString()
       }

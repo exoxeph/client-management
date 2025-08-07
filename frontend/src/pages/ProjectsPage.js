@@ -20,6 +20,9 @@ export const ProjectsPage = ({
     isAuthenticated,
     isLoading
   } = useAuth();
+  // Get URL parameters for filtering - moved to the top to avoid ReferenceError
+  const [urlParams, setUrlParams] = useState(new URLSearchParams(window.location.search));
+  
   const [projects, setProjects] = useState([]);
   const [filteredProjects, setFilteredProjects] = useState([]);
   const [summary, setSummary] = useState({
@@ -39,15 +42,39 @@ export const ProjectsPage = ({
   const [activeFilter, setActiveFilter] = useState("all");
   const [activeVerdictFilter, setActiveVerdictFilter] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
-  // Fetch projects and summary
+  // Fetch projects and summary - only when URL params change, not searchTerm
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true);
-        const [projectsData, summaryData] = await Promise.all([projectsService.getAllProjects(), projectsService.getProjectsSummary()]);
+        const isFromAdminDashboard = urlParams.get('admin') === 'true';
+        const urlVerdict = urlParams.get('verdict');
+        const urlSearchTerm = urlParams.get('q');
+
+        console.log('Fetching data with params:', { isFromAdminDashboard, urlVerdict, urlSearchTerm });
+
+        // If URL has a search term, update our local state
+        if (urlSearchTerm) {
+          setSearchTerm(urlSearchTerm);
+        }
+
+        const [projectsData, summaryData] = await Promise.all([
+          // Only pass URL search term to API, not local searchTerm
+          projectsService.getAllProjects(isFromAdminDashboard, urlVerdict, urlSearchTerm),
+          projectsService.getProjectsSummary(isFromAdminDashboard)
+        ]);
+        console.log('Fetched projects:', projectsData);
+
         setProjects(projectsData);
         setFilteredProjects(projectsData);
         setSummary(summaryData);
+        
+        // If URL has verdict parameter, update the active verdict filter
+        if (urlVerdict) {
+          setActiveVerdictFilter(urlVerdict);
+        } else {
+          setActiveVerdictFilter('all');
+        }
       } catch (error) {
         console.error("Error fetching projects:", error);
       } finally {
@@ -57,50 +84,146 @@ export const ProjectsPage = ({
     if (isAuthenticated && !isLoading) {
       fetchData();
     }
-  }, [isAuthenticated, isLoading]);
+  }, [isAuthenticated, isLoading, urlParams]); // Removed searchTerm dependency
   
 
-  // Filter projects based on active filter, verdict filter, and search term
+  // Update URL params when location changes
   useEffect(() => {
+    // Create a function to handle location changes
+    const handleLocationChange = () => {
+      setUrlParams(new URLSearchParams(window.location.search));
+    };
+    
+    // Add event listener for popstate (browser back/forward)
+    window.addEventListener('popstate', handleLocationChange);
+    
+    // Initial call to set params
+    handleLocationChange();
+    
+    // Cleanup
+    return () => {
+      window.removeEventListener('popstate', handleLocationChange);
+    };
+  }, []);
+  
+  // Filter projects based on active filter, verdict filter, and search term - rebuilt from scratch
+  useEffect(() => {
+    // Check URL parameters for admin=true and verdict
+    const isFromAdminDashboard = urlParams.get('admin') === 'true';
+    const urlVerdict = urlParams.get('verdict');
+
+    // If URL has verdict parameter, use it instead of the active verdict filter
+    // This ensures URL parameters take precedence over UI state
+    if (urlVerdict && isFromAdminDashboard) {
+      console.log('Using verdict from URL:', urlVerdict);
+      setActiveVerdictFilter(urlVerdict);
+    } else if (isFromAdminDashboard && !urlVerdict) {
+      // If admin view but no verdict parameter, ensure we're showing 'all'
+      setActiveVerdictFilter('all');
+    }
+    
+    console.log('--------- Filtering Projects ---------');
+    console.log('Total projects:', projects.length);
+    console.log('Active filter:', activeFilter);
+    console.log('Active verdict filter:', activeVerdictFilter);
+    console.log('Search term:', searchTerm);
+    console.log('Is admin dashboard view:', isFromAdminDashboard);
+    
+    // Start with a copy of all projects
     let result = [...projects];
+    
     // Apply status filter
     if (activeFilter !== "all") {
-      result = result.filter(project => project.status === activeFilter);
+      result = result.filter(project => {
+        // Handle undefined status with a fallback to 'draft'
+        const status = project.status || 'draft';
+        return status === activeFilter;
+      });
+      console.log('After status filtering:', result.length, 'projects');
     }
+    
     // Apply verdict filter
     if (activeVerdictFilter !== "all") {
-      // Log for debugging
       console.log('Filtering by verdict:', activeVerdictFilter);
-      console.log('Projects before filtering:', result.length);
       
       result = result.filter(project => {
-        // Log each project's verdict for debugging
-        console.log(`Project ${project._id || project.id} verdict:`, project.verdict);
-        return project.verdict === activeVerdictFilter;
+        // Handle undefined verdict with a fallback to 'none'
+        const verdict = project.verdict || 'none';
+        return verdict === activeVerdictFilter;
       });
       
-      console.log('Projects after filtering:', result.length);
+      console.log('After verdict filtering:', result.length, 'projects');
     }
+    
     // Apply search filter
-    if (searchTerm.trim() !== "") {
-      const search = searchTerm.toLowerCase();
-      result = result.filter(project => project.title.toLowerCase().includes(search) || project.description.toLowerCase().includes(search) || project.type.toLowerCase().includes(search));
+    if (searchTerm && searchTerm.trim() !== "") {
+      const search = searchTerm.toLowerCase().trim();
+      result = result.filter(project => {
+        // Safely access nested properties with fallbacks
+        const title = (project.overview?.title || project.title || '').toLowerCase();
+        const description = (project.overview?.description || project.description || '').toLowerCase();
+        const type = (project.overview?.type || project.type || '').toLowerCase();
+        const projectId = (project.projectId || project._id || '').toString().toLowerCase();
+        
+        // Check if any of the fields contain the search term
+        return title.includes(search) || 
+               description.includes(search) || 
+               type.includes(search) || 
+               projectId.includes(search);
+      });
+      console.log('After search filtering:', result.length, 'projects');
     }
+    
+    console.log('Final filtered projects:', result.length);
     setFilteredProjects(result);
-  }, [activeFilter, activeVerdictFilter, searchTerm, projects]);
+  }, [activeFilter, activeVerdictFilter, searchTerm, projects, urlParams]);
   // Handle status filter change
   const handleFilterChange = filter => {
     setActiveFilter(filter);
   };
   // Handle verdict filter change
   const handleVerdictFilterChange = verdict => {
-    // If the same verdict filter is clicked again, reset to 'all'
-    setActiveVerdictFilter(prevFilter => prevFilter === verdict ? 'all' : verdict);
+    // For admin users, update URL when changing verdict filters
+    if (currentUser && currentUser.role === 'admin') {
+      const newUrl = new URL(window.location);
+      
+      if (verdict === 'all') {
+        // If selecting 'All', remove the verdict parameter
+        newUrl.searchParams.delete('verdict');
+        setActiveVerdictFilter('all');
+      } else if (verdict === 'pending') {
+        // If selecting 'Pending', set the verdict parameter to pending
+        newUrl.searchParams.set('verdict', 'pending');
+        setActiveVerdictFilter('pending');
+      }
+      
+      // Update the URL without reloading the page
+      window.history.pushState({}, '', newUrl);
+      // Update the URL params state
+      setUrlParams(new URLSearchParams(newUrl.search));
+    } else if (currentUser && (currentUser.role === 'individual' || currentUser.role === 'corporate')) {
+      // For individual and corporate users, directly set the filter to the selected verdict
+      // This creates a simple filter that just shows the selected verdict type
+      setActiveVerdictFilter(verdict);
+    } else {
+      // For other users, maintain the toggle behavior
+      setActiveVerdictFilter(prevFilter => prevFilter === verdict ? 'all' : verdict);
+    }
   };
-  // Handle search change
+  // Handle search change - client-side filtering only
   const handleSearchChange = term => {
+    console.log('Search term changed:', term);
+    
+    // Only update the search term state - no URL changes
     setSearchTerm(term);
+    
+    // No URL manipulation or API calls - filtering happens in the useEffect
   };
+  
+  
+  // Removed automatic setting of verdict filter to 'pending' for admin users
+  // as per user request
+  
   // Show loading state
   if (isLoading) {
     return <div className={`min-h-screen flex items-center justify-center ${darkMode ? "bg-gray-900" : "bg-gray-50"}`}>
@@ -110,10 +233,6 @@ export const ProjectsPage = ({
   // Redirect to login if not authenticated
   if (!isAuthenticated || !currentUser) {
     return <Navigate to="/login" replace />;
-  }
-  // Redirect to dashboard if user is admin
-  if (currentUser.role === "admin") {
-    return <Navigate to="/dashboard" replace />;
   }
 
   // Check if user can create projects
@@ -151,7 +270,36 @@ export const ProjectsPage = ({
               activeVerdictFilter={activeVerdictFilter}
               onVerdictFilterChange={handleVerdictFilterChange}
             />
-            <ProjectsTable projects={filteredProjects} darkMode={darkMode} />
+            <ProjectsTable 
+              projects={filteredProjects} 
+              darkMode={darkMode} 
+              onVerdictUpdate={(projectId, verdict) => {
+                // Refresh projects and summary after verdict update
+                const fetchData = async () => {
+                  try {
+                    setLoading(true);
+                    const isFromAdminDashboard = urlParams.get('admin') === 'true';
+                    const urlVerdict = urlParams.get('verdict');
+
+                    console.log('Refreshing data after verdict update:', { isFromAdminDashboard, urlVerdict });
+
+                    const [projectsData, summaryData] = await Promise.all([
+                      projectsService.getAllProjects(isFromAdminDashboard),
+                      projectsService.getProjectsSummary(isFromAdminDashboard)
+                    ]);
+                    
+                    setProjects(projectsData);
+                    setFilteredProjects(projectsData);
+                    setSummary(summaryData);
+                  } catch (error) {
+                    console.error("Error refreshing projects after verdict update:", error);
+                  } finally {
+                    setLoading(false);
+                  }
+                };
+                fetchData();
+              }}
+            />
           </>}
       </div>
     </DashboardLayout>;

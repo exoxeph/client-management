@@ -98,7 +98,7 @@ export const ProjectsTable = ({
             </tr>
           </thead>
           <tbody className={`divide-y ${darkMode ? "divide-gray-700" : "divide-gray-200"}`}>
-            {displayProjects.map(project => <tr key={project.id} className={darkMode ? "hover:bg-gray-750" : "hover:bg-gray-50"}>
+            {displayProjects.map(project => <tr key={project._id} className={darkMode ? "hover:bg-gray-750" : "hover:bg-gray-50"}>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="flex items-center">
                     <div>

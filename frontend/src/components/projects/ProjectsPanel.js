@@ -84,11 +84,19 @@ export const ProjectsPanel = ({
     // Apply search filter
     if (searchTerm.trim() !== "") {
       const search = searchTerm.toLowerCase();
-      result = result.filter(project => 
-        project.title.toLowerCase().includes(search) || 
-        project.description.toLowerCase().includes(search) || 
-        project.type.toLowerCase().includes(search)
-      );
+      result = result.filter(project => {
+        // Safely access nested properties with fallbacks
+        const title = (project.overview?.title || project.title || '').toLowerCase();
+        const description = (project.overview?.description || project.description || '').toLowerCase();
+        const type = (project.overview?.type || project.type || '').toLowerCase();
+        const projectId = (project.projectId || project._id || '').toString().toLowerCase();
+        
+        // Check if any of the fields contain the search term
+        return title.includes(search) || 
+               description.includes(search) || 
+               type.includes(search) || 
+               projectId.includes(search);
+      });
       console.log(`After search filter (${searchTerm}):`, result);
     }
     

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import PropTypes from "prop-types";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 // useAuth import removed as it's no longer needed
 import { PROJECT_STATUS, PROJECT_VERDICT, projectsService } from "../../services/projects.service";
 
@@ -51,33 +51,135 @@ ProjectTitleModal.propTypes = {
  * @param {boolean} props.darkMode - Whether to use dark mode styling
  * @param {boolean} props.isCompact - Whether to show compact view (for dashboard)
  * @param {number} props.limit - Maximum number of projects to show
+ * @param {Function} props.onVerdictUpdate - Optional callback when verdict is updated
  */
 export const ProjectsTable = ({
   projects,
   darkMode = false,
   isCompact = false,
-  limit = 0
+  limit,
+  onVerdictUpdate = null
 }) => {
+  // Get location object for navigation tracking
+  const location = useLocation();
+  // Check if we're in admin mode by looking at the URL
+  const isAdminMode = new URLSearchParams(window.location.search).get('admin') === 'true';
+  
+  // State for tracking verdict updates
+  const [updatingVerdicts, setUpdatingVerdicts] = useState({});
   // State to track which projects have been reviewed by the current user
   const [reviewedProjects, setReviewedProjects] = useState({});
+  // State to trigger review check when a review is submitted
+  const [reviewCheckTrigger, setReviewCheckTrigger] = useState(0);
   
   // State for the title modal
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedTitle, setSelectedTitle] = useState("");
   
+  // State for filtered projects
+  const [displayProjects, setDisplayProjects] = useState([]);
+  
   // Apply limit if specified
-  const displayProjects = limit > 0 ? projects.slice(0, limit) : projects;
+  useEffect(() => {
+    setDisplayProjects(limit > 0 ? projects.slice(0, limit) : projects);
+    // Log reviews in first project
+    console.log("💡 Reviews in first project:", projects[0]?.reviews);
+  }, [projects, limit]);
+  
+  // State for notifications
+  const [notification, setNotification] = useState({ show: false, message: '', type: '' });
+  
+  // Handle verdict updates
+  const handleVerdictUpdate = async (projectId, verdict) => {
+    try {
+      // Set updating state for this project
+      setUpdatingVerdicts(prev => ({ ...prev, [projectId]: true }));
+      
+      // Call the API to update the verdict
+      await projectsService.updateProjectVerdict(projectId, verdict);
+      
+      // Show success message
+      const verdictText = verdict === PROJECT_VERDICT.CONFIRMED ? 'confirmed' : 'rejected';
+      setNotification({
+        show: true,
+        message: `Project verdict successfully ${verdictText}`,
+        type: 'success'
+      });
+      
+      // Call the parent callback if provided
+      if (onVerdictUpdate && typeof onVerdictUpdate === 'function') {
+        onVerdictUpdate(projectId, verdict);
+      }
+      
+      // Hide notification after 3 seconds
+      setTimeout(() => {
+        setNotification({ show: false, message: '', type: '' });
+      }, 3000);
+    } catch (error) {
+      console.error(`Error updating verdict for project ${projectId}:`, error);
+      
+      // Show error message
+      setNotification({
+        show: true,
+        message: `Error updating verdict: ${error.message || 'Unknown error'}`,
+        type: 'error'
+      });
+      
+      // Hide notification after 3 seconds
+      setTimeout(() => {
+        setNotification({ show: false, message: '', type: '' });
+      }, 3000);
+    } finally {
+      // Clear updating state for this project
+      setUpdatingVerdicts(prev => {
+        const newState = { ...prev };
+        delete newState[projectId];
+        return newState;
+      });
+    }
+  };
   
   // Check which projects have been reviewed by the current user
   useEffect(() => {
     const checkReviewedProjects = async () => {
       const reviewedStatus = {};
       
+      // Get current user ID from localStorage
+      const user = JSON.parse(localStorage.getItem('user'));
+      if (!user || !user._id) {
+        console.log('No user found in localStorage');
+        return;
+      }
+      
+      const userId = user._id.toString();
+      console.log('Checking reviews for user ID:', userId);
+      
       for (const project of displayProjects) {
         if (project.verdict === PROJECT_VERDICT.CONFIRMED) {
           try {
+            // First check if reviews are already in the project data
+            if (project.reviews && Array.isArray(project.reviews) && project.reviews.length > 0) {
+              // Find a review by the current user
+              const hasReview = project.reviews.some(review => {
+                // Skip reviews with missing userId
+                if (!review || !review.userId) {
+                  console.log(`Skipping review with missing userId in project ${project._id}`);
+                  return false;
+                }
+                return review.userId.toString() === userId;
+              });
+              
+              if (hasReview) {
+                console.log(`User has already reviewed project ${project._id} (found in project data)`);
+                reviewedStatus[project._id] = true;
+                continue; // Skip the API call if we already found a review
+              }
+            }
+            
+            // If no review found in project data, check via API
             const userReview = await projectsService.getUserReview(project._id);
             reviewedStatus[project._id] = !!userReview;
+            console.log(`Review status for project ${project._id}:`, !!userReview);
           } catch (error) {
             console.error(`Error checking review status for project ${project._id}:`, error);
             reviewedStatus[project._id] = false;
@@ -89,7 +191,16 @@ export const ProjectsTable = ({
     };
     
     checkReviewedProjects();
-  }, [displayProjects]);
+  }, [displayProjects, location.key, reviewCheckTrigger]); // Add reviewCheckTrigger to re-check when a review is submitted
+  
+  // Check for the reviewed flag in the URL and trigger a review check
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('reviewed') === 'true') {
+      console.log('Review flag detected in URL, triggering review check');
+      setReviewCheckTrigger(prev => prev + 1);
+    }
+  }, [location.search]);
   
   // Status badge styles
   const getStatusBadgeClasses = status => {
@@ -127,7 +238,10 @@ export const ProjectsTable = ({
   };
   
   // Action button functionality completely removed as per user request
-  
+  useEffect(() => {
+  console.log('displayProjects with reviews:', displayProjects);
+  }, [displayProjects]);
+
   // Empty state
   if (displayProjects.length === 0) {
     return (
@@ -155,6 +269,13 @@ export const ProjectsTable = ({
         title={selectedTitle} 
       />
       
+      {/* Notification */}
+      {notification.show && (
+        <div className={`fixed top-4 right-4 px-4 py-2 rounded-md shadow-md z-50 ${notification.type === 'success' ? 'bg-green-100 text-green-800 dark:bg-green-800 dark:text-green-100' : 'bg-red-100 text-red-800 dark:bg-red-800 dark:text-red-100'}`}>
+          {notification.message}
+        </div>
+      )}
+      
       <div className={`rounded-xl border shadow-sm overflow-hidden ${darkMode ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"}`}>
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
@@ -180,11 +301,11 @@ export const ProjectsTable = ({
                 <th scope="col" className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${darkMode ? "text-gray-300" : "text-gray-500"}`}>
                   Last Updated
                 </th>
-                <th scope="col" className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${darkMode ? "text-gray-300" : "text-gray-500"}`}>
+                <th scope="col" className={`px-6 py-3 text-right text-xs font-medium uppercase tracking-wider ${darkMode ? "text-gray-300" : "text-gray-500"}`}>
                   Action
                 </th>
-                <th scope="col" className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${darkMode ? "text-gray-300" : "text-gray-500"}`}>
-                  Review
+                <th scope="col" className={`px-6 py-3 text-right text-xs font-medium uppercase tracking-wider ${darkMode ? "text-gray-300" : "text-gray-500"}`}>
+                  {isAdminMode ? "Verdict" : "Review"}
                 </th>
               </tr>
             </thead>
@@ -208,12 +329,12 @@ export const ProjectsTable = ({
                     </button>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2.5 py-1 text-xs font-medium rounded-full ${getStatusBadgeClasses(project.status)}`}>
-                      {project.status.charAt(0).toUpperCase() + project.status.slice(1)}
+                    <span className={`px-2.5 py-1 text-xs font-medium rounded-full ${getStatusBadgeClasses(project.status || 'draft')}`}>
+                      {project.status ? project.status.charAt(0).toUpperCase() + project.status.slice(1) : 'Draft'}
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2.5 py-1 text-xs font-medium rounded-full ${getVerdictBadgeClasses(project.verdict)}`}>
+                    <span className={`px-2.5 py-1 text-xs font-medium rounded-full ${getVerdictBadgeClasses(project.verdict || 'none')}`}>
                       {project.verdict ? project.verdict.charAt(0).toUpperCase() + project.verdict.slice(1) : 'None'}
                     </span>
                   </td>
@@ -231,6 +352,7 @@ export const ProjectsTable = ({
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right">
                     <div className="flex justify-end">
+                      {/* Action column - always shows action buttons */}
                       {project.status === PROJECT_STATUS.DRAFT && (
                         <Link 
                           to={`/projects/new?draft=${project._id}`} 
@@ -259,20 +381,51 @@ export const ProjectsTable = ({
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right">
                     <div className="flex justify-end">
-                      {project.verdict === PROJECT_VERDICT.CONFIRMED ? (
-                        <Link 
-                          to={`/projects/${project._id}/review`} 
-                          className={`inline-flex items-center px-3 py-1.5 rounded-md text-xs font-medium ${darkMode ? "bg-green-600 hover:bg-green-700 text-white" : "bg-green-600 hover:bg-green-700 text-white"}`}
-                        >
-                          {reviewedProjects[project._id] ? "See Review" : "Give Review"}
-                        </Link>
+                      {isAdminMode ? (
+                        // Admin mode: Show verdict buttons for pending verdicts
+                        project.verdict === PROJECT_VERDICT.PENDING ? (
+                          <div className="flex space-x-2">
+                            <button
+                              onClick={() => handleVerdictUpdate(project._id, PROJECT_VERDICT.CONFIRMED)}
+                              disabled={updatingVerdicts[project._id]}
+                              className={`inline-flex items-center px-3 py-1.5 rounded-md text-xs font-medium ${darkMode ? "bg-green-600 hover:bg-green-700 text-white" : "bg-green-600 hover:bg-green-700 text-white"} ${updatingVerdicts[project._id] ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            >
+                              {updatingVerdicts[project._id] ? 'Updating...' : 'Confirm'}
+                            </button>
+                            <button
+                              onClick={() => handleVerdictUpdate(project._id, PROJECT_VERDICT.REJECTED)}
+                              disabled={updatingVerdicts[project._id]}
+                              className={`inline-flex items-center px-3 py-1.5 rounded-md text-xs font-medium ${darkMode ? "bg-red-600 hover:bg-red-700 text-white" : "bg-red-600 hover:bg-red-700 text-white"} ${updatingVerdicts[project._id] ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            >
+                              {updatingVerdicts[project._id] ? 'Updating...' : 'Reject'}
+                            </button>
+                          </div>
+                        ) : (
+                          // Empty cell for non-pending verdicts in admin mode
+                          <span></span>
+                        )
                       ) : (
-                        <button 
-                          disabled
-                          className={`inline-flex items-center px-3 py-1.5 rounded-md text-xs font-medium ${darkMode ? "bg-gray-700 text-gray-500" : "bg-gray-200 text-gray-400"} cursor-not-allowed`}
-                        >
-                          Give Review
-                        </button>
+                        // Regular user mode: Show review buttons
+                        <>
+                          {project.verdict === PROJECT_VERDICT.CONFIRMED ? (
+                            <Link 
+                              to={`/projects/${project._id}/review`} 
+                              className={`inline-flex items-center px-3 py-1.5 rounded-md text-xs font-medium ${darkMode ? "bg-green-600 hover:bg-green-700 text-white" : "bg-green-600 hover:bg-green-700 text-white"}`}
+                            >
+                              {reviewedProjects.hasOwnProperty(project._id)
+                              ? (reviewedProjects[project._id] ? "See Review" : "Give Review")
+                              : "Checking..."}
+
+                            </Link>
+                          ) : (
+                            <button 
+                              disabled
+                              className={`inline-flex items-center px-3 py-1.5 rounded-md text-xs font-medium ${darkMode ? "bg-gray-700 text-gray-500" : "bg-gray-200 text-gray-400"} cursor-not-allowed`}
+                            >
+                              Give Review
+                            </button>
+                          )}
+                        </>
                       )}
                     </div>
                   </td>
@@ -290,7 +443,8 @@ ProjectsTable.propTypes = {
   projects: PropTypes.array.isRequired,
   darkMode: PropTypes.bool,
   isCompact: PropTypes.bool,
-  limit: PropTypes.number
+  limit: PropTypes.number,
+  onVerdictUpdate: PropTypes.func
 };
 
 export default ProjectsTable;

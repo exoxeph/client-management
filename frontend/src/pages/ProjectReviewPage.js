@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from "react";
-import PropTypes from "prop-types";
 import { useParams, useNavigate } from "react-router-dom";
 import DashboardLayout from "../components/dashboard/DashboardLayout";
 import { useAuth } from "../context/AuthContext";
@@ -61,15 +60,68 @@ export const ProjectReviewPage = () => {
         console.log('Project description:', projectData.overview?.description);
         setProject(projectData);
         
-        // Check if the user has already reviewed this project
-        const userReview = await projectsService.getUserReview(id);
-        if (userReview) {
-          console.log('User has already reviewed this project:', userReview);
-          setExistingReview(userReview);
-          setReview({
-            rating: userReview.rating,
-            comment: userReview.comment
+        // Check if the current user has already reviewed this project
+        const user = JSON.parse(localStorage.getItem('user'));
+        if (!user || !user._id) {
+          console.log('No user found in localStorage or missing user ID');
+          return;
+        }
+        
+        // Convert user ID to string for consistent comparison
+        const userId = user._id.toString();
+        console.log('Current user ID:', userId);
+        
+        // First check if reviews are in the project data
+        if (projectData.reviews && Array.isArray(projectData.reviews) && projectData.reviews.length > 0) {
+          console.log('Project has reviews array with', projectData.reviews.length, 'reviews');
+          
+          // Find review by comparing string representations of user IDs
+          const userReview = projectData.reviews.find(review => {
+            // Skip reviews with missing userId
+            if (!review || !review.userId) {
+              console.log('Found review with missing userId, skipping');
+              return false;
+            }
+            
+            // Ensure review.userId is a string for comparison
+            const reviewUserId = review.userId.toString();
+            const isMatch = reviewUserId === userId;
+            
+            if (isMatch) {
+              console.log('Found matching review with userId:', reviewUserId);
+            }
+            
+            return isMatch;
           });
+          
+          if (userReview) {
+            console.log('Found existing review in project data:', userReview);
+            setExistingReview(userReview);
+            setReview({
+              rating: userReview.rating,
+              comment: userReview.comment
+            });
+            return; // Exit early since we found the review
+          }
+        }
+        
+        // Fallback to the API method if no review found in project data
+        console.log('No review found in project data, checking via API');
+        try {
+          const userReview = await projectsService.getUserReview(id);
+          if (userReview) {
+            console.log('Found existing review via API:', userReview);
+            setExistingReview(userReview);
+            setReview({
+              rating: userReview.rating,
+              comment: userReview.comment
+            });
+          } else {
+            console.log('No existing review found via API');
+          }
+        } catch (reviewErr) {
+          console.error('Error fetching user review:', reviewErr);
+          // Don't set the main error state, just log the review error
         }
       } catch (err) {
         console.error("Error fetching project:", err);
@@ -109,17 +161,32 @@ export const ProjectReviewPage = () => {
       // Use the submitReview method from projectsService
       const submittedReview = await projectsService.submitReview(id, review);
       
+      // Get the current user ID from localStorage
+      const userId = JSON.parse(localStorage.getItem('user'))?.id;
+      
       // Set the existing review with the submitted data
-      setExistingReview({
-        ...submittedReview,
-        userId: JSON.parse(localStorage.getItem('user'))?.id,
+      const reviewData = {
+        ...submittedReview.review, // Access the review object from the response
+        userId: userId,
         createdAt: new Date().toISOString()
-      });
+      };
+      
+      setExistingReview(reviewData);
+
+      // Update the project with the new review
+      if (project && project.reviews) {
+        // Add the new review to the project's reviews array
+        const updatedProject = {
+          ...project,
+          reviews: [...project.reviews, reviewData]
+        };
+        setProject(updatedProject);
+      }
 
       setSubmitSuccess(true);
-      // Redirect after successful submission
+      // Redirect after successful submission with reviewed flag
       setTimeout(() => {
-        navigate(`/projects`);
+        navigate(`/projects?reviewed=true`);
       }, 2000);
     } catch (err) {
       console.error("Error submitting review:", err);

@@ -19,6 +19,7 @@ export const ProjectStatusSummary = ({
   activeFilter = "all",
   activeVerdictFilter = "all"
 }) => {
+  // No need to check user role since we're not showing any cards
   // Process summary data to ensure it has the expected structure
   const summaryWithDefaults = {
     total: summary?.total || 0,
@@ -93,10 +94,39 @@ export const ProjectStatusSummary = ({
   }]; */
   // No verdict filters or buttons as per user request
 
+  // No status cards defined as per user request
+  
+  // Don't show any status cards as per user request
+  const statusCards = [];
+
   return (
     <div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {/* Status card buttons removed as per user request */}
+        {statusCards.map(card => (
+          <button
+            key={card.id}
+            onClick={() => {
+              onFilterChange(card.id);
+              if (card.verdictValue) {
+                onVerdictFilterChange(card.verdictValue);
+              }
+            }}
+            className={`flex items-center p-4 rounded-lg border-2 transition-colors ${card.bgColor} ${card.hoverBgColor} ${card.borderColor}`}
+          >
+            <div className={`p-2 rounded-full mr-3 ${card.bgColor}`}>
+              {card.icon}
+            </div>
+            <div>
+              <div className={`text-sm font-medium ${card.textColor}`}>{card.label}</div>
+              <div className={`text-xl font-bold mt-1 ${card.textColor}`}>{card.count}</div>
+              {card.verdictCount !== undefined && (
+                <div className={`text-xs mt-1 ${darkMode ? "text-gray-400" : "text-gray-500"}`}>
+                  {card.verdictCount} pending verdict
+                </div>
+              )}
+            </div>
+          </button>
+        ))}
       </div>
     </div>
   );

@@ -327,13 +327,24 @@ export const ProjectCreatePage = ({
       if (!draftId) {
         const res = await projectsService.createDraft(payload);
         const newDraftId = res.project?._id;
-        // Update URL with draft ID
-        navigate(`/projects/create?draft=${newDraftId}`, { replace: true });
-        addToast({
-          type: 'success',
-          title: 'Draft Saved',
-          message: 'Your draft has been saved successfully.'
-        });
+        
+        // For individual and corporate users, redirect to projects page
+        if (currentUser && (currentUser.role === 'individual' || currentUser.role === 'corporate')) {
+          addToast({
+            type: 'success',
+            title: 'Draft Saved',
+            message: 'Your draft has been saved successfully.'
+          });
+          navigate('/projects');
+        } else {
+          // For other users, update URL with draft ID
+          navigate(`/projects/create?draft=${newDraftId}`, { replace: true });
+          addToast({
+            type: 'success',
+            title: 'Draft Saved',
+            message: 'Your draft has been saved successfully.'
+          });
+        }
       }
       // Updating existing draft
       else {
@@ -343,6 +354,11 @@ export const ProjectCreatePage = ({
           title: 'Draft Updated',
           message: 'Your draft has been updated successfully.'
         });
+        
+        // For individual and corporate users, redirect to projects page
+        if (currentUser && (currentUser.role === 'individual' || currentUser.role === 'corporate')) {
+          navigate('/projects');
+        }
       }
 
     } catch (error) {

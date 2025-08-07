@@ -155,11 +155,14 @@ const getProjectById = async (id) => {
 
 /**
  * Get projects summary counts
+ * @param {boolean} isAdmin - Whether to fetch summary for admin view
  * @returns {Promise<Object>} Promise resolving to summary counts
  */
-const getProjectsSummary = async () => {
+const getProjectsSummary = async (isAdmin = false) => {
   try {
-    const response = await api.get('/projects/summary');
+    const url = isAdmin ? '/projects/summary?admin=true' : '/projects/summary';
+    console.log('Fetching project summary with URL:', url);
+    const response = await api.get(url);
     return response.data;
   } catch (error) {
     console.error('Error fetching project summary:', error);
@@ -372,26 +375,65 @@ const formatRelativeTime = dateString => {
 
 /**
  * Get all projects for the current user
+ * @param {boolean} isAdmin - Whether the request is coming from admin dashboard
+ * @param {string} verdict - Optional verdict filter (pending, confirmed, rejected, all)
+ * @param {string} searchTerm - Optional search term for project title, description, or type
  * @returns {Promise<Array>} Promise resolving to array of projects
  */
-const getAllProjects = async () => {
+const getAllProjects = async (isAdmin = false, verdict = null, searchTerm = null) => {
   try {
-    const response = await api.get('/projects/all');
-    console.log('Raw projects data from API:', response.data);
+    // Build the URL with query parameters
+    const params = new URLSearchParams();
     
-    // Check if response.data exists and has the expected structure
-    if (response.data) {
-      // If it's already an array, return it directly
-      if (Array.isArray(response.data)) {
-        return response.data;
-      }
-      // If it has an items property (paginated response), return that
-      else if (response.data.items && Array.isArray(response.data.items)) {
+    // Add admin parameter if needed
+    if (isAdmin) {
+      params.append('admin', 'true');
+    }
+    
+    // Add verdict filter if provided and not 'all'
+    if (verdict && verdict !== 'all') {
+      params.append('verdict', verdict);
+    }
+    
+    // Add search term if provided
+    if (searchTerm && searchTerm.trim() !== '') {
+      params.append('q', searchTerm.trim());
+    }
+    
+    // Determine the base URL
+    const baseUrl = isAdmin ? '/projects' : '/projects/all';
+    
+    // Construct the full URL
+    const url = params.toString() ? `${baseUrl}?${params.toString()}` : baseUrl;
+    
+    console.log('Fetching projects with URL:', url);
+    const response = await api.get(url);
+    
+    // Process the response
+    if (!response.data) {
+      console.warn('No data returned from API');
+      return [];
+    }
+    
+    // Handle different response formats
+    if (Array.isArray(response.data)) {
+      console.log('Response is an array with', response.data.length, 'items');
+      return response.data;
+    } 
+    
+    if (response.data.items && Array.isArray(response.data.items)) {
+      console.log('Response has items array with', response.data.items.length, 'items');
+      return response.data.items;
+    } 
+    
+    if (typeof response.data === 'object') {
+      // Check for paginated response structure
+      if (response.data.items && Array.isArray(response.data.items)) {
+        console.log('Found paginated items array with', response.data.items.length, 'items');
         return response.data.items;
       }
     }
-    
-    // If we get here, the response structure is unexpected
+
     console.warn('Unexpected response structure from getAllProjects API:', response.data);
     return [];
   } catch (error) {
@@ -399,6 +441,7 @@ const getAllProjects = async () => {
     throw error;
   }
 };
+
 
 /**
  * Get projects with pending verdict for admin review
@@ -542,7 +585,17 @@ const getUserReview = async (projectId) => {
     }
     
     // Find the review by the current user
-    const userReview = project.reviews.find(review => review.userId === user.id);
+    // Convert userId to string for proper comparison, with null checks
+    const userReview = project.reviews.find(review => {
+      // Ensure review and review.userId exist before calling toString()
+      if (!review || !review.userId) {
+        console.log('Skipping review with missing or invalid userId');
+        return false;
+      }
+      
+      // Convert both IDs to strings for consistent comparison
+      return review.userId.toString() === user.id.toString();
+    });
     return userReview || null;
   } catch (error) {
     console.error('Error getting user review:', error);

@@ -174,7 +174,7 @@ const PendingVerdictProjectsCard = ({
           </svg>
           Pending Verdict Projects
         </h2>
-        <Link to="/projects" className={`text-sm px-4 py-2 rounded-lg transition-colors ${darkMode ? 'text-indigo-400 hover:bg-gray-700' : 'text-indigo-600 hover:bg-gray-100'}`}>
+        <Link to="/projects?admin=true" className={`text-sm px-4 py-2 rounded-lg transition-colors ${darkMode ? 'text-indigo-400 hover:bg-gray-700' : 'text-indigo-600 hover:bg-gray-100'}`}>
           View All Projects
         </Link>
       </div>
@@ -208,7 +208,7 @@ const PendingVerdictProjectsCard = ({
                     {project.title || "Untitled Project"}
                   </h4>
                   <p className={`text-sm mt-1 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                    {project.type || 'No type'} • {project.status && typeof project.status === 'string' ? 
+                    {project.overview?.type || 'No type'} • {project.status && typeof project.status === 'string' ? 
                       (project.status.charAt(0).toUpperCase() + project.status.toLowerCase().slice(1)) : 'Unknown'}
                   </p>
                   <p className={`text-xs mt-2 ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>
