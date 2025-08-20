@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import PropTypes from "prop-types";
-import { useNavigate, Navigate, useSearchParams } from "react-router-dom";
+import { useNavigate, Navigate, useSearchParams, useParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import DashboardLayout from "../components/dashboard/DashboardLayout";
 import { FeatureListEditor } from "../components/project/FeatureListEditor";
@@ -27,7 +27,12 @@ export const ProjectCreatePage = ({
   const [searchParams] = useSearchParams();
   const draftId = searchParams.get('draft');
   const { addToast } = useToast();
+      
+  const { id } = useParams(); // Get the ID from the URL path, e.g., /projects/edit/some_id
+  const isEditMode = Boolean(id); // This is TRUE if we are editing/countering
+
   
+
   const [formErrors, setFormErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -71,7 +76,28 @@ export const ProjectCreatePage = ({
   const validateForm = () => {
     const errors = {};
     let isValid = true;
-    
+        // --- Only run certain checks if NOT in edit mode ---
+    if (!isEditMode) { 
+        if (!projectData.termsAccepted) {
+            errors.termsAccepted = "You must accept the terms to submit";
+            isValid = false;
+        }
+        if (!projectData.primaryContact.trim()) {
+            errors.primaryContact = "Primary contact is required";
+            isValid = false;
+        } else if (!/\S+@\S+\.\S+/.test(projectData.primaryContact)) {
+            errors.primaryContact = "Please enter a valid email address";
+            isValid = false;
+        }
+        if (!projectData.communicationPreference) {
+            errors.communicationPreference = "Communication preference is required";
+            isValid = false;
+        }
+    }
+    // --- End of Edit Mode Checks ---
+
+
+
     // Project Basics
     if (!projectData.title) {
       errors.title = "Project title is required";
@@ -288,7 +314,59 @@ export const ProjectCreatePage = ({
     };
   }, [draftId]); // Removed addToast from dependencies to prevent infinite loop
 
-
+    // This useEffect handles loading a project for editing/countering
+  useEffect(() => {
+    // Only run this if we are in edit mode and not loading a draft
+    if (isEditMode) {
+      const loadProjectForEdit = async () => {
+        setLoading(true);
+        try {
+          const projectToEdit = await projectsService.getProjectById(id);
+          if (projectToEdit) {
+            // Flatten the fetched data to match your form's state structure
+            // This is the same logic you use for drafts
+            setProjectData({
+              title: projectToEdit.overview?.title || '',
+              type: projectToEdit.overview?.type || '',
+              description: projectToEdit.overview?.description || '',
+              businessGoal: projectToEdit.overview?.goal || '',
+              features: projectToEdit.scope?.features || [],
+              userRoles: projectToEdit.scope?.userRoles || '',
+              integrations: projectToEdit.scope?.integrations || '',
+              nonFunctionalRequirements: projectToEdit.scope?.nfr || '',
+              acceptanceCriteria: projectToEdit.scope?.acceptanceCriteria || '',
+              successMetrics: projectToEdit.scope?.successMetrics || '',
+              platforms: projectToEdit.technical?.platforms?.join(', ') || '',
+              techStack: projectToEdit.technical?.stack?.join(', ') || '',
+              hostingPreference: projectToEdit.technical?.hosting || '',
+              securityRequirements: projectToEdit.technical?.security?.split(',').map(s => s.trim()).filter(s => s) || [],
+              dataClassification: projectToEdit.technical?.dataClass || '',
+              startDate: projectToEdit.timelineBudget?.startDate?.split('T')[0] || '',
+              endDate: projectToEdit.timelineBudget?.endDate?.split('T')[0] || '',
+              budgetRange: projectToEdit.timelineBudget?.budgetRange || '',
+              paymentModel: projectToEdit.timelineBudget?.paymentModel || '',
+              milestones: projectToEdit.timelineBudget?.milestones || [],
+              files: projectToEdit.attachments || [],
+              repoUrls: projectToEdit.repos?.map(repo => repo.url).join(', ') || '',
+              ndaRequired: projectToEdit.legal?.ndaRequired ?? false,
+              primaryContact: projectToEdit.contacts?.email || '',
+              communicationPreference: projectToEdit.contacts?.commsPreference || '',
+              termsAccepted: false // Always require re-accepting terms
+            });
+          } else {
+             addToast({ type: 'error', title: 'Error', message: 'Project not found.' });
+             navigate('/projects'); // Redirect if project not found
+          }
+        } catch (error) {
+          console.error("Failed to load project for editing:", error);
+          addToast({ type: 'error', title: 'Error Loading Project', message: 'Failed to load project data.' });
+        } finally {
+          setLoading(false);
+        }
+      };
+      loadProjectForEdit();
+    }
+  }, [id, isEditMode, navigate, addToast]); // Dependencies for this effect
 
   // Handle saving draft
   const handleSaveDraft = async () => {
@@ -373,88 +451,70 @@ export const ProjectCreatePage = ({
     }
   };
   
-  // Handle form submission
+     // Handle form submission for both create and edit/counter modes
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const isValid = validateForm();
-    if (!isValid) {
-      // Scroll to the first error
+    if (!validateForm()) {
       const firstError = document.querySelector(".text-red-500");
       if (firstError) {
         firstError.scrollIntoView({ behavior: "smooth", block: "center" });
       }
       return;
     }
-    
+
+    setSubmitting(true);
     try {
-      setSubmitting(true);
-      console.log('Submitting project form...');
-      
-      const payload = {
-        title: projectData.title,
-        type: projectData.type,
-        description: projectData.description,
-        businessGoal: projectData.businessGoal,
-        features: projectData.features,
-        userRoles: projectData.userRoles,
-        integrations: projectData.integrations,
-        nonFunctionalRequirements: projectData.nonFunctionalRequirements,
-        acceptanceCriteria: projectData.acceptanceCriteria,
-        successMetrics: projectData.successMetrics,
-        platforms: projectData.platforms,
-        techStack: projectData.techStack,
-        hostingPreference: projectData.hostingPreference,
-        securityRequirements: projectData.securityRequirements,
-        dataClassification: projectData.dataClassification,
-        startDate: projectData.startDate,
-        endDate: projectData.endDate,
-        budgetRange: projectData.budgetRange,
-        paymentModel: projectData.paymentModel,
-        milestones: projectData.milestones,
-        repoUrls: projectData.repoUrls,
-        ndaRequired: projectData.ndaRequired,
-        primaryContact: projectData.primaryContact,
-        communicationPreference: projectData.communicationPreference
-      };
-      
-      let projectId = draftId;
-      
-      if (!projectId) {
-        // Create a draft project first if we don't have a draft ID
-        console.log('Creating new draft before submission');
-        const response = await projectsService.createDraft(payload);
-        projectId = response?.id || response?._id;
-        console.log('Created new draft with ID:', projectId);
-      } else {
-        // Update the existing draft
-        console.log('Updating existing draft before submission:', projectId);
-        await projectsService.updateDraft(projectId, payload);
-      }
-      
-      if (projectId) {
-        // Submit the project using the ID
-        console.log('Submitting project with ID:', projectId);
-        await projectsService.submitProject(projectId);
-        console.log('Project submitted successfully');
-        
+      if (isEditMode) {
+        // --- EDIT/COUNTER-OFFER LOGIC ---
+        // For editing, we need to format the data into the nested payload
+        // that the `updateProject` controller on the backend expects.
+        const payload = projectsService.formatProjectData(projectData);
+        await projectsService.updateProject(id, payload);
+
         addToast({
           type: 'success',
-          title: 'Project Submitted',
-          message: 'Your project has been submitted successfully.'
+          title: 'Counter-Offer Submitted',
+          message: 'Your changes have been sent for review.'
         });
-        
-        // Navigate to the project detail page
-        navigate(`/projects/${projectId}`);
+        navigate(currentUser.role === 'admin' ? '/projects' : '/dashboard');
+
       } else {
-        console.error('No project ID returned after creating draft');
-        throw new Error('Failed to create project');
+        // --- CREATE NEW PROJECT LOGIC (Restored to your original, correct logic) ---
+        // For creating, we pass the raw, flat `projectData` from the state,
+        // because the create/update draft services handle formatting internally.
+        let projectId = draftId;
+
+        if (!projectId) {
+          // Create a draft project first if we don't have a draft ID
+          const response = await projectsService.createDraft(projectData); // Pass the flat data
+          projectId = response?.id || response?._id;
+        } else {
+          // Update the existing draft
+          await projectsService.updateDraft(projectId, projectData); // Pass the flat data
+        }
+
+        if (projectId) {
+          // Submit the project using the ID
+          await projectsService.submitProject(projectId);
+          addToast({
+            type: 'success',
+            title: 'Project Submitted',
+            message: 'Your project has been submitted successfully.'
+          });
+          navigate(`/projects/${projectId}`);
+        } else {
+          throw new Error('Failed to create project');
+        }
       }
     } catch (error) {
       console.error("Error submitting project:", error);
+      if (error.response) {
+        console.error("Backend Error Response:", error.response.data);
+      }
       addToast({
         type: 'error',
         title: 'Submission Failed',
-        message: 'Failed to submit your project. Please try again.'
+        message: error.message || 'Failed to submit your project. Please try again.'
       });
     } finally {
       setSubmitting(false);
@@ -473,13 +533,28 @@ export const ProjectCreatePage = ({
     return <Navigate to="/login" replace />;
   }
 
-  // Redirect to dashboard if currentUser is admin
-  if (currentUser.role === "admin") {
+    // Redirect to dashboard if currentUser is admin AND they are NOT editing
+  if (currentUser.role === "admin" && !isEditMode) {
+    addToast({
+        type: 'info',
+        title: 'Admins cannot create new projects from this page.',
+        message: 'Please manage projects from the admin dashboard.'
+    });
     return <Navigate to="/dashboard" replace />;
   }
 
   // Redirect to projects page if currentUser doesn't have the right role to create projects
-  if (currentUser.role !== "corporate" && currentUser.role !== "individual") {
+    // --- NEW, SMARTER REDIRECT LOGIC ---
+
+  // Define who is allowed to be on this page
+  const isCreator = currentUser.role === "corporate" || currentUser.role === "individual";
+  const isAdminEditing = currentUser.role === "admin" && isEditMode;
+
+  // If the user is NOT a creator AND is NOT an admin who is editing, then redirect.
+  if (!isCreator && !isAdminEditing) {
+    // This will now correctly redirect any other user role, or an admin who
+    // tries to visit /projects/new, but it will allow an admin to stay
+    // when they are on /projects/edit/:id.
     return <Navigate to="/projects" replace />;
   }
 
@@ -488,7 +563,7 @@ export const ProjectCreatePage = ({
       <div className="max-w-4xl mx-auto">
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-gray-900">
-            Create a New Project
+            {isEditMode ? 'Counter Project Offer' : 'Create a New Project'}
           </h1>
           <p className="mt-2 text-gray-500">
             Fill out the form below to submit your project request. We'll review it and get back to you shortly.
@@ -1051,6 +1126,8 @@ export const ProjectCreatePage = ({
 
           {/* Submit Buttons */}
           <div className="flex justify-end space-x-4">
+          {/* Only show Save as Draft button when creating a new project */}
+          {!isEditMode && (
             <button 
               type="button"
               onClick={handleSaveDraft}
@@ -1059,14 +1136,15 @@ export const ProjectCreatePage = ({
             >
               {submitting ? "Saving..." : "Save as Draft"}
             </button>
-            <button 
-              type="submit" 
-              disabled={submitting || loading} 
-              className={`px-6 py-3 rounded-lg text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700 ${(submitting || loading) ? "opacity-50 cursor-not-allowed" : ""}`}
-            >
-              {submitting ? "Submitting..." : "Submit Project"}
-            </button>
-          </div>
+          )}
+          <button 
+            type="submit" 
+            disabled={submitting || loading} 
+            className={`px-6 py-3 rounded-lg text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700 ${(submitting || loading) ? "opacity-50 cursor-not-allowed" : ""}`}
+          >
+            {submitting ? "Submitting..." : (isEditMode ? "Submit Counter" : "Submit Project")}
+          </button>
+        </div>
         </form>
       </div>
     </DashboardLayout>

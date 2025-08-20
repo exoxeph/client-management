@@ -9,6 +9,8 @@ export const PROJECT_STATUS = {
   PENDING: "pending",
   CONFIRMED: "confirmed",
   REJECTED: "rejected",
+  ADMIN_COUNTER: "admin-counter",
+  CLIENT_COUNTER: "client-counter",
   DRAFT: "draft"
 };
 
@@ -490,6 +492,7 @@ const getPendingVerdictProjects = async () => {
 };
 
 /**
+ * @deprecated Use updateProject(projectId, { verdict: '...' }) instead.
  * Update project verdict (admin only)
  * @param {string} projectId - Project ID
  * @param {string} verdict - New verdict (CONFIRMED or REJECTED)
@@ -603,6 +606,40 @@ const getUserReview = async (projectId) => {
   }
 };
 
+/**
+ * Update a project (for counter-offers and verdicts)
+ * @param {string} projectId - Project ID
+ * @param {Object} updateData - Data to update. Can be project fields for a counter-offer, or { verdict: '...' } for a decision.
+ * @returns {Promise<Object>} Promise resolving to the updated project
+ */
+const updateProject = async (projectId, updateData) => {
+  try {
+    if (!projectId) {
+      throw new Error('Project ID is required for update');
+    }
+    // The endpoint is PATCH /api/projects/:id
+    const response = await api.patch(`/projects/${projectId}`, updateData);
+    return response.data;
+  } catch (error)
+  {
+    console.error(`Error updating project ${projectId}:`, error);
+    if (error.response) {
+      console.error('Error response data:', error.response.data);
+    }
+    throw error;
+  }
+};
+const submitAdminReview = async (projectId, reviewData) => {
+  try {
+    const response = await api.post(`/projects/${projectId}/admin-review`, reviewData);
+    return response.data;
+  } catch (error) {
+    console.error('Error submitting admin review:', error);
+    throw error;
+  }
+};
+
+
 // Export all service functions and constants
 export const projectsService = {
   getProjects,
@@ -617,6 +654,9 @@ export const projectsService = {
   getAllProjects,
   getPendingVerdictProjects,
   updateProjectVerdict,
+  updateProject,
+  formatProjectData,
   submitReview,
+  submitAdminReview,
   getUserReview
 };

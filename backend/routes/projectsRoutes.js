@@ -11,6 +11,7 @@ const { uploadProjectAttachments } = require('../middleware/upload');
 const {
   createDraft,
   updateDraft,
+  updateProject,
   submitProject,
   getProject,
   getProjectSummary,
@@ -19,6 +20,7 @@ const {
   createProject,
   confirmProject,
   rejectProject,
+  submitAdminReview ,
   submitReview
 } = require('../controllers/projectsController');
 
@@ -60,5 +62,12 @@ router.post('/:id/reject', protect, requireRole(['admin']), rejectProject);
 
 // Submit a review for a project
 router.post('/:id/reviews', protect, submitReview);
+
+router.route('/:id')
+  .get(protect, getProject)
+  .patch(protect, updateProject); // Use PATCH for partial updates
+
+router.route('/:id/admin-review')
+  .post(protect, requireRole('admin'), submitAdminReview);
 
 module.exports = router;

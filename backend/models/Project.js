@@ -139,8 +139,9 @@ const ContactsSchema = new mongoose.Schema({
   },
   commsPreference: {
     type: String,
-    enum: ['email', 'phone', 'both'],
-    default: 'email'
+    // Add all the values from your frontend dropdown
+    enum: ['Email', 'Phone', 'Video Call', 'In-person Meeting', 'Slack/Teams'],
+    default: 'Email'
   }
 }, { _id: false });
 
@@ -240,7 +241,7 @@ const ProjectSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['draft', 'submitted', 'under_review', 'approved', 'rejected'],
+    enum: ['draft', 'submitted', 'admin-counter', 'client-counter', 'under_review', 'approved', 'rejected'],
     default: 'draft'
   },
   verdict: {
@@ -284,6 +285,15 @@ const ProjectSchema = new mongoose.Schema({
     type: [ActivityLogSchema],
     default: []
   },
+  adminReview: {
+    adminId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    professionalism: Number, // e.g., rating 1-5
+    communication: Number,   // e.g., rating 1-5
+    clarityOfRequirements: Number, // e.g., rating 1-5
+    comment: String,
+    createdAt: { type: Date, default: Date.now }
+  },
+
   reviews: {
     type: [ReviewSchema],
     default: []

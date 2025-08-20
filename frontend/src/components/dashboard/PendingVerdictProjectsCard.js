@@ -20,8 +20,22 @@ const PendingVerdictProjectsCard = ({
   const fetchPendingProjects = useCallback(async () => {
     try {
       setIsLoading(true);
-      // Fetch pending verdict projects directly from the service
-      const pendingProjects = await projectsService.getPendingVerdictProjects();
+      // 1. Fetch ALL projects that are visible to the admin
+      const allAdminProjects = await projectsService.getAllProjects(true);
+      
+      // 2. (For Debugging) Log the raw data to the console to see what we're working with
+      console.log("DATA RECEIVED FOR PENDING CARD:", allAdminProjects);
+
+      // 3. Apply a safe filter to find only the projects needing a verdict
+      const pendingProjects = allAdminProjects.filter(project => {
+        // Safety Check: Ensure project and project.status exist before trying to read them
+        if (!project || !project.status || !project.verdict) {
+          return false;
+        }
+        // The actual filter logic
+        return project.verdict === 'pending' && 
+         (project.status === 'submitted' || project.status === 'client-counter');
+      }); 
       
       if (Array.isArray(pendingProjects)) {
         setProjects(pendingProjects);
@@ -43,6 +57,37 @@ const PendingVerdictProjectsCard = ({
   useEffect(() => {
     fetchPendingProjects();
   }, [fetchPendingProjects]);
+  
+
+    /**
+   * Handles the admin's decision to accept or reject a project.
+   */
+  const handleVerdict = async (projectId, verdict) => {
+    try {
+      // We no longer need setIsLoading here as the item just disappears
+      await projectsService.updateProject(projectId, { verdict });
+      
+      setToast({
+        show: true,
+        message: `Project ${verdict} successfully`,
+        type: "success"
+      });
+      setTimeout(() => setToast({ show: false, message: "", type: "" }), 3000);
+
+      // Refresh the list by filtering out the project that was just actioned
+      setProjects(prevProjects => prevProjects.filter(p => p._id !== projectId));
+
+    } catch (err) {
+      console.error(`Failed to set verdict to ${verdict}`, err);
+      setToast({
+        show: true,
+        message: `Failed to ${verdict} project. Please try again.`,
+        type: "error"
+      });
+      setTimeout(() => setToast({ show: false, message: "", type: "" }), 3000);
+    }
+  };
+
 
   /**
    * Format timestamp to relative time (e.g., "5 minutes ago")
@@ -174,7 +219,7 @@ const PendingVerdictProjectsCard = ({
           </svg>
           Pending Verdict Projects
         </h2>
-        <Link to="/projects?admin=true" className={`text-sm px-4 py-2 rounded-lg transition-colors ${darkMode ? 'text-indigo-400 hover:bg-gray-700' : 'text-indigo-600 hover:bg-gray-100'}`}>
+        <Link to="/projects" className={`text-sm px-4 py-2 rounded-lg transition-colors ${darkMode ? 'text-indigo-400 hover:bg-gray-700' : 'text-indigo-600 hover:bg-gray-100'}`}>
           View All Projects
         </Link>
       </div>
@@ -205,7 +250,7 @@ const PendingVerdictProjectsCard = ({
                 </div>
                 <div className="flex-1">
                   <h4 className={`font-medium ${darkMode ? 'text-white' : 'text-gray-900'}`}>
-                    {project.title || "Untitled Project"}
+                    {project.overview.title || "Untitled Project"}
                   </h4>
                   <p className={`text-sm mt-1 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                     {project.overview?.type || 'No type'} • {project.status && typeof project.status === 'string' ? 
@@ -214,22 +259,31 @@ const PendingVerdictProjectsCard = ({
                   <p className={`text-xs mt-2 ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>
                     Submitted {formatRelativeTime(project.updatedAt)}
                   </p>
+                      
                   <div className="mt-4 flex space-x-2">
                     <Link to={`/projects/${project._id}`} className={`text-xs px-3 py-1 rounded-lg transition-colors ${darkMode ? 'bg-gray-600 hover:bg-gray-500 text-white' : 'bg-gray-200 hover:bg-gray-300 text-gray-700'}`}>
                       View Details
                     </Link>
+                    {/* Accept Button */}
                     <button 
-                      onClick={() => updateProjectVerdict(project._id, PROJECT_VERDICT.CONFIRMED)}
+                      onClick={() => handleVerdict(project._id, 'confirmed')}
                       className={`text-xs px-3 py-1 rounded-lg transition-colors ${darkMode ? 'bg-green-600 hover:bg-green-500 text-white' : 'bg-green-500 hover:bg-green-600 text-white'}`}
                     >
-                      Confirm
+                      Accept
                     </button>
+                    {/* Reject Button */}
                     <button 
-                      onClick={() => updateProjectVerdict(project._id, PROJECT_VERDICT.REJECTED)}
+                      onClick={() => handleVerdict(project._id, 'rejected')}
                       className={`text-xs px-3 py-1 rounded-lg transition-colors ${darkMode ? 'bg-red-600 hover:bg-red-500 text-white' : 'bg-red-500 hover:bg-red-600 text-white'}`}
                     >
                       Reject
                     </button>
+                    {/* Counter Button */}
+                    <Link to={`/projects/edit/${project._id}`}>
+                      <button className={`text-xs px-3 py-1 rounded-lg transition-colors ${darkMode ? 'bg-yellow-600 hover:bg-yellow-500 text-white' : 'bg-yellow-500 hover:bg-yellow-600 text-white'}`}>
+                        Counter
+                      </button>
+                    </Link>
                   </div>
                 </div>
               </div>

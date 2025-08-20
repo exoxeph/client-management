@@ -48,6 +48,29 @@ export const RecentProjectsCard = ({
     fetchProjects();
   }, []);
 
+
+  /**
+   * Handles the client's decision on an admin's counter-offer.
+   */
+  const handleVerdict = async (event, projectId, verdict) => {
+    // Stop the browser from navigating since these buttons are inside a Link
+    event.stopPropagation();
+    event.preventDefault();
+
+    try {
+      const updatedProject = await projectsService.updateProject(projectId, { verdict });
+      // To see the change instantly, we update the project in our local state
+      setProjects(prevProjects =>
+        prevProjects.map(p => (p._id === projectId ? updatedProject : p))
+      );
+      // Optional: Add a toast notification for success
+    } catch (err) {
+      console.error(`Failed to set verdict to ${verdict}`, err);
+      // Optional: Add a toast notification for error
+    }
+  };
+
+  
   /**
    * Format timestamp to relative time (e.g., "5 minutes ago")
    * @param {string} timestamp - ISO timestamp string
@@ -168,30 +191,61 @@ export const RecentProjectsCard = ({
             Create a Project
           </Link>
         </div> : <div className="space-y-4">
-          {projects.map(project => <Link key={project._id} to={project.status === PROJECT_STATUS.DRAFT ? `/projects/new?draft=${project._id}` : `/projects/${project._id}`} className={`block p-4 rounded-lg ${darkMode ? 'bg-gray-700/50 hover:bg-gray-700' : 'bg-gray-50 hover:bg-gray-100'} transition-colors`}>
-              <div className="flex items-start">
-                <div className={`p-2 rounded-full mr-4 ${getStatusColorClass(project.status)}`}>
-                  {getProjectStatusIcon(project.status)}
+          {projects.map(project => (
+            <div key={project._id} className={`p-4 rounded-lg ${darkMode ? 'bg-gray-700/50' : 'bg-gray-50'}`}>
+              <Link to={project.status === 'draft' ? `/projects/new?draft=${project._id}` : `/projects/${project._id}`} className={`block rounded-lg transition-colors ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}>
+                <div className="flex items-start">
+                  <div className={`p-2 rounded-full mr-4 ${getStatusColorClass(project.status)}`}>
+                    {getProjectStatusIcon(project.status)}
+                  </div>
+                  <div className="flex-1">
+                    <h4 className={`font-medium ${darkMode ? 'text-white' : 'text-gray-900'}`}>
+                      {project.overview?.title || "Untitled Project"}
+                    </h4>
+                    <p className={`text-sm mt-1 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                      {project.overview?.type || 'No type'} • {project.status && typeof project.status === 'string' ?
+                        (project.status.charAt(0).toUpperCase() + project.status.toLowerCase().slice(1)) : 'Unknown'}
+                      {project.verdict && project.verdict !== PROJECT_VERDICT.NONE && (
+                        <span className={`ml-1 ${getVerdictColorClass(project.verdict)}`}>
+                          • Verdict: {project.verdict.charAt(0).toUpperCase() + project.verdict.slice(1)}
+                        </span>
+                      )}
+                    </p>
+                    <p className={`text-xs mt-2 ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                      {formatRelativeTime(project.updatedAt)}
+                    </p>
+                  </div>
                 </div>
-                <div className="flex-1">
-                  <h4 className={`font-medium ${darkMode ? 'text-white' : 'text-gray-900'}`}>
-                    {project.title || "Untitled Project"}
-                  </h4>
-                  <p className={`text-sm mt-1 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                    {project.type || 'No type'} • {project.status && typeof project.status === 'string' ? 
-                      (project.status.charAt(0).toUpperCase() + project.status.toLowerCase().slice(1)) : 'Unknown'}
-                    {project.verdict && project.verdict !== PROJECT_VERDICT.NONE && (
-                      <span className={`ml-1 ${getVerdictColorClass(project.verdict)}`}>
-                        • Verdict: {project.verdict.charAt(0).toUpperCase() + project.verdict.slice(1)}
-                      </span>
-                    )}
+              </Link>
+
+              {project.status === 'admin-counter' && (
+                <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                  <p className={`text-sm font-semibold mb-2 ${darkMode ? 'text-amber-300' : 'text-amber-800'}`}>
+                    Action Required: A counter-offer has been received.
                   </p>
-                  <p className={`text-xs mt-2 ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                    {formatRelativeTime(project.updatedAt)}
-                  </p>
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={(e) => handleVerdict(e, project._id, 'confirmed')}
+                      className={`text-xs px-3 py-1 rounded-lg transition-colors ${darkMode ? 'bg-green-600 hover:bg-green-500 text-white' : 'bg-green-500 hover:bg-green-600 text-white'}`}
+                    >
+                      Accept Offer
+                    </button>
+                    <button
+                      onClick={(e) => handleVerdict(e, project._id, 'rejected')}
+                      className={`text-xs px-3 py-1 rounded-lg transition-colors ${darkMode ? 'bg-red-600 hover:bg-red-500 text-white' : 'bg-red-500 hover:bg-red-600 text-white'}`}
+                    >
+                      Reject Offer
+                    </button>
+                    <Link to={`/projects/edit/${project._id}`} onClick={(e) => e.stopPropagation()}>
+                      <button className={`text-xs px-3 py-1 rounded-lg transition-colors ${darkMode ? 'bg-blue-600 hover:bg-blue-500 text-white' : 'bg-blue-500 hover:bg-blue-600 text-white'}`}>
+                        Re-Counter
+                      </button>
+                    </Link>
+                  </div>
                 </div>
-              </div>
-            </Link>)}
+              )}
+            </div>
+          ))}
         </div>}
     </div>;
 };

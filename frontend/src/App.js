@@ -16,6 +16,8 @@ import { ProjectReviewPage } from "./pages/ProjectReviewPage";
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { ToastProvider } from './components/ui/Toast';
 import { AuthProvider } from './context/AuthContext';
+import { AdminReviewPage } from "./pages/AdminReviewPage";
+
 export function App() {
   return (
     <AuthProvider>
@@ -40,6 +42,8 @@ export function App() {
           <Route path="/projects/:id/review" element={<ProjectReviewPage />} />
           {/* Add an additional route to match /project/:id pattern for compatibility */}
           <Route path="/project/:id" element={<ProjectDetailPage />} />
+          <Route path="/projects/edit/:id" element={<ProjectCreatePage />} />
+          <Route path="/projects/:id/admin-review" element={<AdminReviewPage />} />
         </Route>
       </Routes>
       <Footer />

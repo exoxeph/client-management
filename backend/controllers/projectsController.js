@@ -300,6 +300,91 @@ const updateDraft = async (req, res) => {
 };
 
 /**
+ * Update a project (for counter-offers and verdict changes)
+ * @route PATCH /api/projects/:id
+ * @access Private (owner or admin)
+ */
+const updateProject = async (req, res) => {
+  try {
+    const { id: projectId } = req.params;
+    const { id: userId, role } = req.user;
+    const updatePayload = req.body;
+
+    // Validate project ID
+    if (!mongoose.Types.ObjectId.isValid(projectId)) {
+      return res.status(400).json({ message: 'Invalid project ID' });
+    }
+
+    const project = await Project.findById(projectId);
+    if (!project) {
+      return res.status(404).json({ message: 'Project not found' });
+    }
+
+    // Authorization: Only owner or admin can update
+    if (project.ownerUserId.toString() !== userId && role !== 'admin') {
+      return res.status(403).json({ message: 'Not authorized to update this project' });
+    }
+
+    let activityNote = '';
+
+    // --- LOGIC FOR COUNTER-OFFERS & VERDICTS ---
+
+    // Scenario 1: A verdict is being set (Accept/Reject)
+    if (updatePayload.verdict) {
+      if (updatePayload.verdict === 'confirmed') {
+        // Check if user is allowed to confirm
+        if ((role === 'admin' && (project.status === 'submitted' || project.status === 'client-counter')) ||
+            ((project.ownerRole === 'corporate' || project.ownerRole === 'individual') && project.status === 'admin-counter')) {
+              project.status = 'approved'; // Final approved state
+              project.verdict = 'confirmed';
+              activityNote = `Project approved by ${role}.`;
+        } else {
+          return res.status(400).json({ message: `Cannot confirm project with status: ${project.status}` });
+        }
+      } else if (updatePayload.verdict === 'rejected') {
+        // Check if user is allowed to reject
+        if ((role === 'admin' && (project.status === 'submitted' || project.status === 'client-counter')) ||
+            ((project.ownerRole === 'corporate' || project.ownerRole === 'individual') && project.status === 'admin-counter')) {
+              project.status = 'rejected'; // Final rejected state
+              project.verdict = 'rejected';
+              activityNote = `Project rejected by ${role}.`;
+        } else {
+          return res.status(400).json({ message: `Cannot reject project with status: ${project.status}` });
+        }
+      }
+    } 
+    // Scenario 2: Project data is being updated (a counter-offer)
+    else {
+        // Update all fields sent in the request body
+        Object.assign(project, updatePayload);
+        
+        if (role === 'admin') {
+            project.status = 'admin-counter';
+            activityNote = 'Admin submitted a counter-offer.';
+        } else { // Client role
+            project.status = 'client-counter';
+            activityNote = 'Client submitted a re-counter.';
+        }
+    }
+
+    // Add activity log entry
+    project.activityLog.push({
+      at: new Date(),
+      type: 'project_updated',
+      by: userId,
+      note: activityNote
+    });
+
+    const updatedProject = await project.save();
+    res.status(200).json(updatedProject);
+
+  } catch (error) {
+    console.error('Error updating project:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+/**
  * Submit a project
  * @route POST /api/projects/:id/submit
  * @access Private (owner only)
@@ -531,105 +616,64 @@ const getProjectSummary = async (req, res) => {
   }
 };
 
+
 /**
  * List projects with filtering, search, pagination, and sorting
  * @route GET /api/projects
- * @route GET /api/projects/all
- * @route GET /api/projects/pending
  * @access Private (corporate, individual, admin)
  */
 const listProjects = async (req, res) => {
   try {
     const { id: userId, role } = req.user;
-    const isAllRoute = req.path === '/all';
-    const isPendingRoute = req.path === '/pending';
-    const { status = 'all', verdict = isPendingRoute ? 'pending' : 'all', q = '', page = 1, limit = 10, sort = 'updatedAt:desc' } = req.query;
-    const isAdminQuery = req.query.admin === 'true';
-    // Parse pagination parameters (only if not the /all route)
-    const pageNum = isAllRoute ? 1 : parseInt(page, 10);
-    const limitNum = isAllRoute ? 0 : Math.min(parseInt(limit, 10), 100); // Cap at 100 items, 0 means no limit
-    const skip = isAllRoute ? 0 : (pageNum - 1) * limitNum;
+    const { status = 'all', verdict = 'all', q = '', page = 1, limit = 10, sort = 'updatedAt:desc' } = req.query;
+    
+    const pageNum = parseInt(page, 10);
+    const limitNum = Math.min(parseInt(limit, 10), 100);
+    const skip = (pageNum - 1) * limitNum;
 
-    // Build the filter
-    // For admin or project_manager users, don't filter by ownerUserId to see all projects
-    // For corporate/individual users, only show their own projects
     let filter = {};
 
+    // --- THIS IS THE NEW CORE LOGIC ---
+    // If the user is an admin, they can see all projects.
+    // If they are a client, they can only see their own.
     if (role === 'admin' || role === 'project_manager') {
-      // Admin and project managers can see all projects
-      // No longer forcing verdict=pending filter for admin users
-      if (isAdminQuery) {
-        console.log('Admin query detected, but not forcing verdict filter');
-      }
+      // Admin sees everything, but we will explicitly EXCLUDE drafts,
+      // as drafts are private to the client until submitted.
+      filter.status = { $ne: 'draft' };
     } else {
-      // Limit to user's own projects
+      // A client (corporate/individual) only ever sees their own projects.
       filter.ownerUserId = userId;
     }
-
- 
+    // --- END OF NEW CORE LOGIC ---
 
     // Add status filter if not 'all'
     if (status !== 'all') {
-      // Map frontend status names to backend status values
-      if (status === 'pending') {
-        filter.status = { $in: ['submitted', 'under_review'] };
-      } else if (status === 'confirmed') {
-        filter.status = 'approved';
-      } else if (status === 'rejected') {
-        filter.status = 'rejected';
-      } else {
-        filter.status = status; // For 'draft' or any direct match
-      }
+      filter.status = status;
     }
 
-    // Add verdict filter if not 'all' or if it's the pending route
-    // Apply verdict filter for all queries including admin=true
+    // Add verdict filter if not 'all'
     if (verdict !== 'all') {
       filter.verdict = verdict;
     }
 
-
     // Add text search if query is provided
     if (q) {
-      // Search across multiple fields: title, description, and type
       filter['$or'] = [
         { 'overview.title': { $regex: q, $options: 'i' } },
-        { 'overview.description': { $regex: q, $options: 'i' } },
-        { 'overview.type': { $regex: q, $options: 'i' } }
+        { 'overview.description': { $regex: q, $options: 'i' } }
       ];
     }
 
-    // Parse sort parameter
-    const [sortField, sortOrder] = sort.split(':');
-    const sortOptions = {
-      [sortField]: sortOrder === 'desc' ? -1 : 1
-    };
+    const sortOptions = { [sort.split(':')[0]]: sort.split(':')[1] === 'desc' ? -1 : 1 };
 
-    // Execute the query with pagination (if not /all route)
-    const query = Project.find(filter)
+    const projects = await Project.find(filter)
       .sort(sortOptions)
-      .select('ownerUserId ownerRole status verdict reviews overview timelineBudget updatedAt createdAt projectId')
+      .skip(skip)
+      .limit(limitNum)
+      .select('ownerUserId ownerRole status verdict overview timelineBudget updatedAt createdAt projectId adminReview reviews');
     
-    // Apply pagination if not /all route
-    if (!isAllRoute) {
-      query.skip(skip).limit(limitNum);
-    }
-    
-    const projects = await query;
-
-    // Log projects before sending to frontend
-    console.log("✅ Final projects being sent to frontend:", projects);
-    
-    // For /all or /pending route, return just the array of projects
-    if (isAllRoute || isPendingRoute) {
-      return res.status(200).json(projects);
-    }
-    
-    // For regular route, return paginated format
-    // Get total count for pagination
     const total = await Project.countDocuments(filter);
 
-    // The projects are already logged above before the route check
     res.status(200).json({
       items: projects,
       page: pageNum,
@@ -718,7 +762,57 @@ const uploadAttachments = async (req, res) => {
   }
 };
 
+/**
+ * Submit an admin's internal review of a client for a project
+ * @route POST /api/projects/:id/admin-review
+ * @access Private (admin only)
+ */
+const submitAdminReview = async (req, res) => {
+  try {
+    const { id: projectId } = req.params;
+    const { id: adminId } = req.user; // Get admin's ID from token
+    const { professionalism, communication, clarityOfRequirements, comment } = req.body;
 
+    const project = await Project.findById(projectId);
+    if (!project) {
+      return res.status(404).json({ message: 'Project not found' });
+    }
+
+    // Business rule: Only confirmed projects can be reviewed
+    if (project.verdict !== 'confirmed') {
+      return res.status(400).json({ message: 'Only confirmed projects can be reviewed' });
+    }
+
+    // Business rule: Prevent duplicate admin reviews
+    if (project.adminReview && project.adminReview.adminId) {
+        return res.status(400).json({ message: 'An admin review for this project already exists.' });
+    }
+
+    project.adminReview = {
+      adminId,
+      professionalism,
+      communication,
+      clarityOfRequirements,
+      comment,
+      createdAt: new Date()
+    };
+    
+    // Add to activity log for auditing
+    project.activityLog.push({
+      at: new Date(),
+      type: 'admin_review_submitted',
+      by: adminId,
+      note: 'Admin submitted an internal review of the client.'
+    });
+
+    await project.save();
+    res.status(201).json({ message: 'Admin review submitted successfully', adminReview: project.adminReview });
+
+  } catch (error) {
+    console.error('Error submitting admin review:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
 
 /**
  * Confirm a submitted project (admin only)
@@ -949,7 +1043,9 @@ const submitReview = async (req, res) => {
 module.exports = {
   createDraft,
   updateDraft,
+  updateProject,
   submitProject,
+  submitAdminReview,
   getProject,
   getProjectSummary,
   listProjects,
