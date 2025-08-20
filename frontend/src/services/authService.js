@@ -47,9 +47,16 @@ const authService = {
   // Register individual user
   registerIndividual: async (userData) => {
     const response = await api.post('/auth/register/individual', userData);
+    
     if (response.data.token) {
       localStorage.setItem('token', response.data.token);
-      localStorage.setItem('user', JSON.stringify(response.data));
+      
+      // Create a sanitized version of the user data
+      const sanitizedUserData = { ...response.data };
+      
+      // Individual users typically don't have large binary data,
+      // but we'll apply the same pattern for consistency
+      localStorage.setItem('user', JSON.stringify(sanitizedUserData));
     }
     return response.data;
   },
@@ -90,7 +97,22 @@ const authService = {
     
     if (response.data.token) {
       localStorage.setItem('token', response.data.token);
-      localStorage.setItem('user', JSON.stringify(response.data));
+      
+      // Create a sanitized version of the user data to prevent localStorage quota issues
+      const userData = { ...response.data };
+      
+      // Remove large binary data if present
+      if (userData.profile && userData.profile.documents) {
+        // Remove file data but keep metadata
+        if (userData.profile.documents.businessLicense) {
+          delete userData.profile.documents.businessLicense.fileData;
+        }
+        if (userData.profile.documents.taxDocument) {
+          delete userData.profile.documents.taxDocument.fileData;
+        }
+      }
+      
+      localStorage.setItem('user', JSON.stringify(userData));
     }
     return response.data;
   },
@@ -101,7 +123,22 @@ const authService = {
     const response = await api.post(endpoint, { email, password });
     if (response.data.token) {
       localStorage.setItem('token', response.data.token);
-      localStorage.setItem('user', JSON.stringify(response.data));
+      
+      // Create a sanitized version of the user data to prevent localStorage quota issues
+      const userData = { ...response.data };
+      
+      // Remove large binary data if present
+      if (userData.profile && userData.profile.documents) {
+        // Remove file data but keep metadata
+        if (userData.profile.documents.businessLicense) {
+          delete userData.profile.documents.businessLicense.fileData;
+        }
+        if (userData.profile.documents.taxDocument) {
+          delete userData.profile.documents.taxDocument.fileData;
+        }
+      }
+      
+      localStorage.setItem('user', JSON.stringify(userData));
     }
     return response.data;
   },
@@ -175,8 +212,24 @@ const authService = {
       
       console.log('authService.fetchCurrentUser - Final user data with role:', userData.role);
       
-      // Update localStorage with the latest user data
-      localStorage.setItem('user', JSON.stringify(userData));
+      // Create a sanitized version of the user data to prevent localStorage quota issues
+      const sanitizedUserData = { ...userData };
+      
+      // Remove large binary data if present
+      if (sanitizedUserData.profile && sanitizedUserData.profile.documents) {
+        // Remove file data but keep metadata
+        if (sanitizedUserData.profile.documents.businessLicense) {
+          delete sanitizedUserData.profile.documents.businessLicense.fileData;
+        }
+        if (sanitizedUserData.profile.documents.taxDocument) {
+          delete sanitizedUserData.profile.documents.taxDocument.fileData;
+        }
+      }
+      
+      // Update localStorage with the sanitized user data
+      localStorage.setItem('user', JSON.stringify(sanitizedUserData));
+      
+      // Return the original user data with all fields intact for the application to use
       return userData;
     } catch (error) {
       console.error('authService.fetchCurrentUser - Error:', error);
