@@ -312,6 +312,25 @@ const ProjectSchema = new mongoose.Schema({
   reviews: {
     type: [ReviewSchema],
     default: []
+  },
+
+  contract: {
+    filePath: {
+      type: String,
+      trim: true
+    },
+    fileName: {
+      type: String,
+      trim: true
+    },
+    generatedAt: {
+      type: Date
+    },
+    status: {
+      type: String,
+      enum: ['none', 'generated', 'sent', 'signed'],
+      default: 'none'
+    }
   }
 }, {
   timestamps: true

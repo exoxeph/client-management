@@ -6,6 +6,9 @@ import { useAuth } from "../context/AuthContext";
 import { projectsService } from "../services/projects.service";
 import { useToast } from "../components/ui/Toast";
 import { RequirementsDisplay } from '../components/projects/RequirementsDisplay';
+import axios from 'axios';
+
+const SERVER_ROOT_URL = process.env.REACT_APP_SERVER_URL || 'http://localhost:5000';
 
 // Field components for displaying project data
 const Field = ({ label, value }) => (
@@ -130,6 +133,7 @@ export const ProjectDetailPage = () => {
   const [error, setError] = useState(null);
   const { addToast } = useToast();
   const [isTokenizing, setIsTokenizing] = useState(false);
+  const [isGeneratingContract, setIsGeneratingContract] = useState(false);
 
   // Fetch project data
   useEffect(() => {
@@ -219,6 +223,67 @@ export const ProjectDetailPage = () => {
         addToast({ type: 'error', title: 'Tokenization Failed' });
     } finally {
         setIsTokenizing(false);
+    }
+  };
+
+   const handleDownloadContract = async () => {
+    try {
+      // 1. Get the auth token from localStorage
+      const token = localStorage.getItem('token');
+      
+      // 2. Make an authenticated request using axios
+      const response = await axios({
+        url: `${SERVER_ROOT_URL}/api/projects/${project._id}/download-contract`,
+        method: 'GET',
+        responseType: 'blob', // <-- This is the crucial part for file downloads
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      // 3. Create a temporary link to trigger the download
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      // Use the filename from the project data or a default
+      const fileName = project.contract?.fileName || `contract-${project.projectId}.pdf`;
+      link.setAttribute('download', fileName); 
+      document.body.appendChild(link);
+      link.click();
+      
+      // Clean up the temporary link
+      link.parentNode.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+    } catch (error) {
+      console.error("Failed to download contract:", error);
+      addToast({ type: 'error', title: 'Download Failed', message: 'Could not download the contract.' });
+    }
+  };
+
+  const handleGenerateContract = async () => {
+    setIsGeneratingContract(true);
+    try {
+      const response = await projectsService.generateContract(project._id);
+      // Update the local project state with the new contract data
+      setProject(prevProject => ({
+        ...prevProject,
+        contract: response.contract
+      }));
+      addToast({ 
+        type: 'success', 
+        title: 'Contract Generated Successfully',
+        message: 'The PDF contract has been generated and is ready for download.'
+      });
+    } catch (error) {
+      console.error('Contract generation error:', error);
+      addToast({ 
+        type: 'error', 
+        title: 'Contract Generation Failed',
+        message: error.response?.data?.message || 'Failed to generate contract. Please try again.'
+      });
+    } finally {
+      setIsGeneratingContract(false);
     }
   };
 
@@ -327,6 +392,12 @@ export const ProjectDetailPage = () => {
       </DashboardLayout>
     );
   }
+  // ... right before the final return statement
+  console.log("--- DEBUGGING PROJECT DETAIL PAGE ---");
+  console.log("Current User Role:", currentUser?.role);
+  console.log("Project Object:", project);
+  console.log("Project ID for Link:", project?._id);
+  console.log("------------------------------------");
 
   return (
     <DashboardLayout>
@@ -475,6 +546,112 @@ export const ProjectDetailPage = () => {
               label="Communication Preference"
               value={project?.contacts?.commsPreference}
             />
+          </div>
+
+          {/* Contract Management */}
+          <div className="mb-10">
+            <h2 className="text-xl font-bold mb-6 text-gray-900">
+              Contract Management
+            </h2>
+            
+            {/* Admin View */}
+            {currentUser && currentUser.role === 'admin' && (
+              <div className="space-y-4">
+                {!project?.contract?.status || project.contract.status === 'none' ? (
+                  <div className="p-4 rounded-lg bg-blue-50 border border-blue-200">
+                    <p className="mb-4 text-sm text-blue-800">
+                      No contract has been generated for this project yet.
+                    </p>
+                    <button
+                      onClick={handleGenerateContract}
+                      disabled={isGeneratingContract}
+                      className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                    >
+                      {isGeneratingContract ? (
+                        <>
+                          <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Generating Contract...
+                        </>
+                      ) : (
+                        '📄 Generate Contract'
+                      )}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="p-4 rounded-lg bg-green-50 border border-green-200">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-green-800">
+                          Contract Status: <span className="capitalize">{project.contract.status}</span>
+                        </p>
+                        {project.contract.generatedAt && (
+                          <p className="text-sm text-green-600 mt-1">
+                            Generated on: {new Date(project.contract.generatedAt).toLocaleDateString()}
+                          </p>
+                        )}
+                      </div>
+                      <button
+  onClick={handleDownloadContract}
+  className="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-md hover:bg-green-700 flex items-center"
+>
+  {/* You can add a download icon here if you like */}
+  Download Contract
+</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+            
+            {/* Client View */}
+            {currentUser && (currentUser.role === 'corporate' || currentUser.role === 'individual') && (
+              <div>
+                {project?.contract?.status && project.contract.status !== 'none' ? (
+                  <div className="p-4 rounded-lg bg-green-50 border border-green-200">
+                    <div className="text-center">
+                      <div className="mb-4">
+                        <svg className="w-12 h-12 mx-auto text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                      </div>
+                      <h3 className="text-lg font-medium text-green-800 mb-2">Contract Ready</h3>
+                      <p className="text-sm text-green-600 mb-4">
+                        Your project contract is ready for download.
+                      </p>
+                          
+                      <button
+                        onClick={handleDownloadContract}
+                        className="inline-flex items-center px-6 py-3 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 transition-colors"
+                      >
+                        <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+                        </svg>
+                        Download Contract
+                      </button>
+
+  
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-4 rounded-lg bg-yellow-50 border border-yellow-200">
+                    <div className="text-center">
+                      <div className="mb-4">
+                        <svg className="w-12 h-12 mx-auto text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      </div>
+                      <h3 className="text-lg font-medium text-yellow-800 mb-2">Contract In Preparation</h3>
+                      <p className="text-sm text-yellow-600">
+                        The contract is being prepared. You will be notified when it's ready for download.
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
           {/* === AI REQUIREMENTS SECTION (Admin Only) === */}
           {currentUser && currentUser.role === 'admin' && (

@@ -22,7 +22,9 @@ const {
   rejectProject,
   submitAdminReview ,
   submitReview,
-  tokenizeProject 
+  tokenizeProject,
+  generateContract,
+  downloadContract
 } = require('../controllers/projectsController');
 
 // Create a new project draft (corporate/individual only)
@@ -72,5 +74,11 @@ router.route('/:id/admin-review')
   .post(protect, requireRole('admin'), submitAdminReview);
 
 router.route('/:id/tokenize').post(protect, requireRole('admin'), tokenizeProject);
+
+// Generate contract for a project (admin only)
+router.post('/:id/generate-contract', protect, requireRole('admin'), generateContract);
+
+// Download contract for a project (authenticated users - security check in controller)
+router.get('/:id/download-contract', protect, downloadContract);
 
 module.exports = router;

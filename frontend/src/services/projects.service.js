@@ -649,6 +649,34 @@ const tokenizeProject = async (projectId) => {
   }
 };
 
+/**
+ * Generate a PDF contract for a project
+ * @param {string} projectId - Project ID
+ * @returns {Promise<Object>} Promise resolving to the updated project with contract details
+ */
+const generateContract = async (projectId) => {
+  try {
+    if (!projectId) {
+      throw new Error('Project ID is required');
+    }
+    
+    console.log('Generating contract for project:', projectId);
+    const response = await api.post(`/projects/${projectId}/generate-contract`);
+    console.log('Contract generation successful:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('Error generating contract:', error);
+    
+    // Enhanced error logging
+    if (error.response) {
+      console.error('Error response status:', error.response.status);
+      console.error('Error response data:', error.response.data);
+    }
+    
+    throw error;
+  }
+};
+
 
 // Export all service functions and constants
 export const projectsService = {
@@ -669,5 +697,6 @@ export const projectsService = {
   submitReview,
   submitAdminReview,
   getUserReview,
-  tokenizeProject
+  tokenizeProject,
+  generateContract
 };

@@ -6,6 +6,9 @@
 const Project = require('../models/Project');
 const mongoose = require('mongoose');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const puppeteer = require('puppeteer');
+const fs = require('fs');
+const path = require('path');
 
 /**
  * Create a new project
@@ -1114,6 +1117,191 @@ Generate the requirements document using this exact JSON schema. Be concise but 
   }
 };
 
+/**
+ * Generate a PDF contract for a project
+ * @route POST /api/projects/:id/generate-contract
+ * @access Private (owner or admin)
+ */
+const generateContract = async (req, res) => {
+  try {
+    const { id: projectId } = req.params;
+    const { id: userId } = req.user;
+
+    // Validate project ID
+    if (!mongoose.Types.ObjectId.isValid(projectId)) {
+      return res.status(400).json({ message: 'Invalid project ID' });
+    }
+
+    // Find the project and populate user data
+    const project = await Project.findById(projectId).populate('ownerUserId', 'email');
+
+    if (!project) {
+      return res.status(404).json({ message: 'Project not found' });
+    }
+
+    // Check authorization (project owner or admin)
+    if (project.ownerUserId._id.toString() !== userId && req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Not authorized to generate contract for this project' });
+    }
+
+    // Read the contract template
+    const templatePath = path.join(__dirname, '..', 'templates', 'contractTemplate.html');
+    let htmlTemplate = fs.readFileSync(templatePath, 'utf8');
+
+    // Get client information based on owner role
+    let clientName = project.contacts?.name || 'Client Name';
+    let clientEmail = project.contacts?.email || project.ownerUserId.email || 'client@email.com';
+
+    if (project.ownerRole === 'corporate') {
+      const Corporate = require('../models/Corporate');
+      const corporate = await Corporate.findOne({ user: project.ownerUserId._id });
+      if (corporate) {
+        clientName = corporate.companyName || corporate.primaryContact?.name || clientName;
+        clientEmail = corporate.primaryContact?.email || clientEmail;
+      }
+    } else if (project.ownerRole === 'individual') {
+      const Individual = require('../models/Individual');
+      const individual = await Individual.findOne({ user: project.ownerUserId._id });
+      if (individual) {
+        clientName = individual.fullName || clientName;
+        clientEmail = individual.email || clientEmail;
+      }
+    }
+
+    // Format dates nicely
+    const formatDate = (date) => {
+      if (!date) return 'To be determined';
+      return new Date(date).toLocaleDateString('en-US', { 
+        year: 'numeric', 
+        month: 'long', 
+        day: 'numeric' 
+      });
+    };
+
+    // Replace placeholders with actual data
+    htmlTemplate = htmlTemplate
+      .replace(/{{clientName}}/g, clientName)
+      .replace(/{{clientEmail}}/g, clientEmail)
+      .replace(/{{companyName}}/g, 'DevSolutions Inc.')
+      .replace(/{{projectTitle}}/g, project.overview?.title || 'Untitled Project')
+      .replace(/{{projectDescription}}/g, project.overview?.description || 'No description provided')
+      .replace(/{{projectGoal}}/g, project.overview?.goal || 'No goal specified')
+      .replace(/{{budgetRange}}/g, project.timelineBudget?.budgetRange || 'To be negotiated')
+      .replace(/{{paymentModel}}/g, project.timelineBudget?.paymentModel || 'To be determined')
+      .replace(/{{startDate}}/g, formatDate(project.timelineBudget?.startDate))
+      .replace(/{{endDate}}/g, formatDate(project.timelineBudget?.endDate))
+      .replace(/{{currentDate}}/g, formatDate(new Date()));
+
+    // Launch puppeteer and generate PDF
+    const browser = await puppeteer.launch({ 
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+    const page = await browser.newPage();
+    await page.setContent(htmlTemplate, { waitUntil: 'networkidle0' });
+    
+    const pdfBuffer = await page.pdf({
+      format: 'A4',
+      printBackground: true,
+      margin: {
+        top: '20px',
+        right: '20px',
+        bottom: '20px',
+        left: '20px'
+      }
+    });
+    
+    await browser.close();
+
+    // Ensure contracts directory exists
+    const contractsDir = path.join(__dirname, '..', 'uploads', 'contracts');
+    if (!fs.existsSync(contractsDir)) {
+      fs.mkdirSync(contractsDir, { recursive: true });
+    }
+
+    // Save PDF to file
+    const fileName = `contract-${project._id}.pdf`;
+    const filePath = path.join(contractsDir, fileName);
+    fs.writeFileSync(filePath, pdfBuffer);
+
+    // Update project with contract information
+    project.contract = {
+      filePath: filePath,
+      fileName: fileName,
+      generatedAt: new Date(),
+      status: 'generated'
+    };
+
+    // Add activity log entry
+    project.activityLog.push({
+      at: new Date(),
+      type: 'contract_generated',
+      by: userId,
+      note: 'PDF contract generated'
+    });
+
+    await project.save();
+
+    res.status(200).json({
+      message: 'Contract generated successfully',
+      contract: project.contract
+    });
+  } catch (error) {
+    console.error('Error generating contract:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+/**
+ * Download a generated contract PDF
+ * @route GET /api/projects/:id/download-contract
+ * @access Private (owner or admin)
+ */
+const downloadContract = async (req, res) => {
+  try {
+    const { id: projectId } = req.params;
+    const { id: userId, role } = req.user;
+
+    // Validate project ID
+    if (!mongoose.Types.ObjectId.isValid(projectId)) {
+      return res.status(400).json({ message: 'Invalid project ID' });
+    }
+
+    // Find the project
+    const project = await Project.findById(projectId);
+
+    if (!project) {
+      return res.status(404).json({ message: 'Project not found' });
+    }
+
+    // Security check - only project owner or admin can download
+    if (project.ownerUserId.toString() !== userId && role !== 'admin') {
+      return res.status(403).json({ message: 'Forbidden: Not authorized to download this contract' });
+    }
+
+    // Check if contract has been generated
+    if (!project.contract || !project.contract.filePath) {
+      return res.status(404).json({ message: 'Contract not found. Please generate the contract first.' });
+    }
+
+    // Check if file exists on disk
+    if (!fs.existsSync(project.contract.filePath)) {
+      return res.status(404).json({ message: 'Contract file not found on server' });
+    }
+
+    // Send the file using res.download()
+    res.download(project.contract.filePath, project.contract.fileName, (err) => {
+      if (err) {
+        console.error('Error downloading contract:', err);
+        res.status(500).json({ message: 'Error downloading contract' });
+      }
+    });
+  } catch (error) {
+    console.error('Error downloading contract:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
 module.exports = {
   createDraft,
   updateDraft,
@@ -1128,5 +1316,7 @@ module.exports = {
   confirmProject,
   rejectProject,
   submitReview,
-  tokenizeProject
+  tokenizeProject,
+  generateContract,
+  downloadContract
 };
