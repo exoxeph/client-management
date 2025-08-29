@@ -4,6 +4,8 @@ import { useParams, Navigate, useNavigate } from "react-router-dom";
 import DashboardLayout from "../components/dashboard/DashboardLayout";
 import { useAuth } from "../context/AuthContext";
 import { projectsService } from "../services/projects.service";
+import { useToast } from "../components/ui/Toast";
+import { RequirementsDisplay } from '../components/projects/RequirementsDisplay';
 
 // Field components for displaying project data
 const Field = ({ label, value }) => (
@@ -121,10 +123,13 @@ const printStyles = `
 export const ProjectDetailPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { currentUser } = useAuth(); // Gets the user object
   const { isAuthenticated, isLoading } = useAuth();
   const [project, setProject] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const { addToast } = useToast();
+  const [isTokenizing, setIsTokenizing] = useState(false);
 
   // Fetch project data
   useEffect(() => {
@@ -203,6 +208,19 @@ export const ProjectDetailPage = () => {
     
     fetchProject();
   }, [id]);
+
+  const handleTokenizeClick = async () => {
+    setIsTokenizing(true);
+    try {
+        const updatedProject = await projectsService.tokenizeProject(project._id);
+        setProject(updatedProject); // Refresh the page with the new data
+        addToast({ type: 'success', title: 'Tokenization Complete' });
+    } catch (error) {
+        addToast({ type: 'error', title: 'Tokenization Failed' });
+    } finally {
+        setIsTokenizing(false);
+    }
+  };
 
   // Show loading state
   if (isLoading || loading) {
@@ -458,6 +476,32 @@ export const ProjectDetailPage = () => {
               value={project?.contacts?.commsPreference}
             />
           </div>
+          {/* === AI REQUIREMENTS SECTION (Admin Only) === */}
+          {currentUser && currentUser.role === 'admin' && (
+            <div className="mb-10">
+              <h2 className="text-xl font-bold mb-6 text-gray-900">
+                AI-Generated Project Requirements
+              </h2>
+              
+              {!project.requirements || !project.requirements.summary ? (
+                <div className="p-4 rounded-lg bg-gray-50 border">
+                  <p className="mb-4 text-sm text-gray-600">No requirements have been generated yet.</p>
+                  <button
+                    onClick={handleTokenizeClick}
+                    disabled={isTokenizing}
+                    className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 disabled:opacity-50"
+                  >
+                    {isTokenizing ? 'Generating...' : '✨ Generate with AI'}
+                  </button>
+                </div>
+              ) : (               
+                  <div className="mt-4">
+                  <RequirementsDisplay requirements={project.requirements} />
+                  </div>
+              )}
+            </div>
+          )}
+          {/* === END OF SECTION === */}
         </div>
         {/* Back to Projects Button */}
         <div className="mt-8 flex justify-center print-hide">

@@ -5,15 +5,28 @@
 
 const path = require('path');
 const express = require('express');
+const { createServer } = require('http');
+const { Server } = require('socket.io');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const connectDB = require('./config/db');
+const { initializeSocket } = require('./socketHandlers');
 
 // Load environment variables
 dotenv.config({ path: path.resolve(__dirname, '.env') });
 
 // Initialize express app
 const app = express();
+const server = createServer(app);
+ const io = new Server(server, {
+   path: '/socket.io',
+   cors: {
+    origin: ["http://localhost:3000", "http://127.0.0.1:3000"],
+     credentials: true,
+     methods: ["GET", "POST"]
+   }
+ });
+
 const PORT = process.env.PORT || 5001;
 
 // Import middleware
@@ -25,7 +38,7 @@ app.use(requestLogger);
 
 // Configure CORS properly
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  origin: process.env.FRONTEND_URL ? process.env.FRONTEND_URL.split(',') : ['http://localhost:3000','http://127.0.0.1:3000'],
   credentials: true,
   allowedHeaders: ['Content-Type', 'Authorization', 'Cache-Control', 'Pragma'],
   methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS']
@@ -52,6 +65,15 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Import routes
 const indexRoutes = require('./routes/index');
+
+// Initialize Socket.io
+initializeSocket(io);
+
+// Make io instance available to routes
+app.use((req, res, next) => {
+  req.io = io;
+  next();
+});
 
 // Routes
 app.use('/api', indexRoutes);
@@ -115,10 +137,11 @@ connectWithTimeout()
 
 // Function to start the server
 function startServer(dbConnected) {
-  app.listen(PORT, () => {
+  server.listen(PORT, '0.0.0.0', () => {
     const connectionStatus = dbConnected ? 'with database connection' : '(without database connection)';
     console.log(`Server running on port ${PORT} ${connectionStatus}`);
     console.log(`API is available at http://localhost:${PORT}/api`);
+    console.log(`Socket.io is running on http://localhost:${PORT}`);
     
     if (!dbConnected) {
       console.log('Note: API functionality that requires database access will not work');

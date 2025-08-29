@@ -285,6 +285,21 @@ const ProjectSchema = new mongoose.Schema({
     type: [ActivityLogSchema],
     default: []
   },
+
+  requirements: {
+    summary: String,
+    userStories: [{ asA: String, iWantTo: String, soThat: String }],
+    functionalRequirements: {
+      frontend: [{ id: String, component: String, task: String, acceptanceCriteria: String, priority: String }],
+      backend: [{ id: String, service: String, task: String, acceptanceCriteria: String, priority: String }]
+    },
+    nonFunctionalRequirements: [{ id: String, category: String, requirement: String }],
+    suggestedTechnologies: {
+      frontend: [String],
+      backend: [String],
+      deployment: [String]
+    }
+  },
   adminReview: {
     adminId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     professionalism: Number, // e.g., rating 1-5

@@ -4,6 +4,7 @@ import { Button } from './ui/Button'
 import { MenuIcon, XIcon, CodeIcon, LogOutIcon, UserIcon } from 'lucide-react'
 import { useScrollSpy } from './hooks/useScrollSpy'
 import { useAuth } from '../context/AuthContext'
+import { useChat } from '../context/ChatContext'
 export const NavBar = () => {
   const location = useLocation()
   const navigate = useNavigate()
@@ -11,6 +12,10 @@ export const NavBar = () => {
   const [isRedirecting, setIsRedirecting] = useState(false)
 
   const { isAuthenticated, logout, currentUser } = useAuth()
+  
+  // Get unread message count from chat context
+  const { getTotalUnreadCount } = useChat() || {}
+  const totalUnreadCount = getTotalUnreadCount ? getTotalUnreadCount() : 0
   const navigationItems = [
     { name: 'Home', path: '#home' },
     { name: 'Services', path: '#services' },
@@ -143,10 +148,15 @@ export const NavBar = () => {
                     <Button
                       variant="outline"
                       size="sm"
-                      className="flex items-center"
+                      className="flex items-center relative"
                     >
                       <UserIcon size={16} className="mr-1" />
                       Dashboard
+                      {totalUnreadCount > 0 && (
+                        <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-medium">
+                          {totalUnreadCount > 99 ? '99+' : totalUnreadCount}
+                        </span>
+                      )}
                     </Button>
                   </Link>
                   <Button
@@ -236,10 +246,15 @@ export const NavBar = () => {
                   <Button
                     variant="outline"
                     size="md"
-                    className="w-full justify-center flex items-center"
+                    className="w-full justify-center flex items-center relative"
                   >
                     <UserIcon size={16} className="mr-1" />
                     Dashboard
+                    {totalUnreadCount > 0 && (
+                      <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-medium">
+                        {totalUnreadCount > 99 ? '99+' : totalUnreadCount}
+                      </span>
+                    )}
                   </Button>
                 </Link>
                 <Button

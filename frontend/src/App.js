@@ -16,39 +16,45 @@ import { ProjectReviewPage } from "./pages/ProjectReviewPage";
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { ToastProvider } from './components/ui/Toast';
 import { AuthProvider } from './context/AuthContext';
+import { ChatProvider } from './context/ChatContext';
+import ChatWindow from './components/chat/ChatWindow';
 import { AdminReviewPage } from "./pages/AdminReviewPage";
 
 export function App() {
   return (
     <AuthProvider>
-      <ToastProvider>
-        <div className="w-full min-h-screen bg-white font-sans">
-      <NavBar />
-      <Routes>
-        <Route path="/" element={<main>
-              <HeroSection />
-              <ServicesSection />
-              <AboutSection />
-              <ContactSection />
-            </main>} />
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/register" element={<RegisterPage />} />
-        {/* Protected Routes */}
-        <Route element={<ProtectedRoute />}>
-          <Route path="/dashboard" element={<DashboardPage />} />
-          <Route path="/projects" element={<ProjectsPage />} />
-          <Route path="/projects/new" element={<ProjectCreatePage />} />
-          <Route path="/projects/:id" element={<ProjectDetailPage />} />
-          <Route path="/projects/:id/review" element={<ProjectReviewPage />} />
-          {/* Add an additional route to match /project/:id pattern for compatibility */}
-          <Route path="/project/:id" element={<ProjectDetailPage />} />
-          <Route path="/projects/edit/:id" element={<ProjectCreatePage />} />
-          <Route path="/projects/:id/admin-review" element={<AdminReviewPage />} />
-        </Route>
-      </Routes>
-      <Footer />
-        </div>
-      </ToastProvider>
+      <ChatProvider>
+        <ToastProvider>
+          <div className="w-full min-h-screen bg-white font-sans">
+        <NavBar />
+        <Routes>
+          <Route path="/" element={<main>
+                <HeroSection />
+                <ServicesSection />
+                <AboutSection />
+                <ContactSection />
+              </main>} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/register" element={<RegisterPage />} />
+          {/* Protected Routes */}
+          <Route element={<ProtectedRoute />}>
+            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/projects" element={<ProjectsPage />} />
+            <Route path="/projects/new" element={<ProjectCreatePage />} />
+            <Route path="/projects/:id" element={<ProjectDetailPage />} />
+            <Route path="/projects/:id/review" element={<ProjectReviewPage />} />
+            {/* Add an additional route to match /project/:id pattern for compatibility */}
+            <Route path="/project/:id" element={<ProjectDetailPage />} />
+            <Route path="/projects/edit/:id" element={<ProjectCreatePage />} />
+            <Route path="/projects/:id/admin-review" element={<AdminReviewPage />} />
+          </Route>
+        </Routes>
+        <Footer />
+          </div>
+          {/* Chat Window - Global component */}
+          <ChatWindow />
+        </ToastProvider>
+      </ChatProvider>
     </AuthProvider>
   );
 }

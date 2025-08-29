@@ -5,6 +5,7 @@
 
 const Project = require('../models/Project');
 const mongoose = require('mongoose');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 /**
  * Create a new project
@@ -1040,6 +1041,79 @@ const submitReview = async (req, res) => {
   }
 };
 
+const tokenizeProject = async (req, res) => {
+  try {
+    const project = await Project.findById(req.params.id);
+    if (!project) return res.status(404).json({ message: "Project not found" });
+
+    const projectProposal = `
+      Project Title: ${project.overview?.title || 'N/A'}
+      Description: ${project.overview?.description || 'N/A'}
+      Business Goal: ${project.overview?.goal || 'N/A'}
+      Key Features: ${project.scope?.features?.join(', ') || 'N/A'}
+    `;
+
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+    const masterPrompt = `
+You are "ClientManager AI", an expert software architect and project manager for the development firm "DevSolutions Inc.". Your task is to analyze a new client project proposal and convert it into a detailed, structured, and professional project requirements document.
+
+Your ONLY output MUST be a single, raw, valid JSON object. Do not include any text, explanations, conversation, or markdown formatting like \`\`\`json. Your response must begin with \`{\` and end with \`}\`.
+
+Analyze the following project proposal:
+---
+Project Title: ${project.overview?.title || 'N/A'}
+Description: ${project.overview?.description || 'N/A'}
+Business Goal: ${project.overview?.goal || 'N/A'}
+Key Features submitted by client: ${project.scope?.features?.join(', ') || 'N/A'}
+---
+
+Generate the requirements document using this exact JSON schema. Be concise but comprehensive. The acceptance criteria must be specific and testable.
+
+{
+  "summary": "A high-level, one-sentence summary of the project's purpose and primary goal.",
+  "userStories": [
+    { "asA": "Primary User Role", "iWantTo": "Perform a key action", "soThat": "I can achieve a specific benefit." },
+    { "asA": "Secondary User Role", "iWantTo": "Perform another action", "soThat": "I can achieve another benefit." }
+  ],
+  "functionalRequirements": {
+    "frontend": [
+      { "id": "FE-01", "component": "User Authentication", "task": "Develop a user login page with email and password fields.", "acceptanceCriteria": "User can enter valid credentials to log in. User sees an error message with invalid credentials.", "priority": "High" }
+    ],
+    "backend": [
+      { "id": "BE-01", "service": "Authentication Service", "task": "Create a secure API endpoint for JWT-based user login.", "acceptanceCriteria": "Endpoint validates credentials against the database. On success, it returns a signed JWT. On failure, it returns a 401 Unauthorized error.", "priority": "High" }
+    ]
+  },
+  "nonFunctionalRequirements": [
+    { "id": "NFR-01", "category": "Security", "requirement": "All passwords must be hashed using bcrypt. API must be protected against CSRF and XSS attacks." }
+  ],
+  "suggestedTechnologies": {
+    "frontend": ["React", "Tailwind CSS"],
+    "backend": ["Node.js", "Express.js", "MongoDB"],
+    "deployment": ["Vercel", "Render"]
+  }
+}`;
+
+    const result = await model.generateContent(masterPrompt);
+    let jsonString = result.response.text();
+    if (jsonString.startsWith("```json\n")) {
+      jsonString = jsonString.slice(7, -3);
+    }
+    
+    const generatedRequirements = JSON.parse(jsonString);
+
+    project.requirements = generatedRequirements;
+    project.activityLog.push({ by: req.user.id, type: 'requirements_generated', note: 'AI-generated requirements created.' });
+    const updatedProject = await project.save();
+    
+    res.status(200).json(updatedProject);
+  } catch (error) {
+    console.error("Error during project tokenization:", error);
+    res.status(500).json({ message: "Failed to tokenize project", error: error.message });
+  }
+};
+
 module.exports = {
   createDraft,
   updateDraft,
@@ -1053,5 +1127,6 @@ module.exports = {
   createProject,
   confirmProject,
   rejectProject,
-  submitReview
+  submitReview,
+  tokenizeProject
 };

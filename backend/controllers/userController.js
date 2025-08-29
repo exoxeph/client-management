@@ -233,6 +233,25 @@ const getUsers = async (req, res) => {
   }
 };
 
+/**
+ * @desc    Get all clients (non-admin users)
+ * @route   GET /api/users/clients
+ * @access  Private/Admin
+ */
+const getClients = async (req, res) => {
+  try {
+    // Find all users whose role is not 'admin' and select only required fields
+    const clients = await User.find({
+      role: { $ne: 'admin' }
+    }).select('firstName lastName email');
+
+    res.json(clients);
+  } catch (error) {
+    console.error('Error fetching clients:', error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
 
 
 module.exports = {
@@ -242,5 +261,6 @@ module.exports = {
   updateUser,
   deleteUser,
   verifyUser,
-  getUsers
+  getUsers,
+  getClients
 };

@@ -7,9 +7,16 @@ const {
   updateUser, 
   deleteUser,
   verifyUser,
-  getUsers 
+  getUsers,
+  getClients
 } = require('../controllers/userController');
 const { protect, admin } = require('../middleware/auth');
+const requireRole = require('../middleware/requireRole');
+
+// @route   GET /api/users/clients
+// @desc    Get all clients (non-admin users)
+// @access  Private/Admin
+router.get('/clients', protect, requireRole('admin'), getClients);
 
 // @route   GET /api/users/unverified
 // @desc    Get all unverified corporate users

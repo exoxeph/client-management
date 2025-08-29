@@ -7,6 +7,7 @@ const authRoutes = require('./auth.routes');
 const dashboardRoutes = require('./dashboard.routes');
 const projectsRoutes = require('./projectsRoutes');
 const documentRoutes = require('./document.routes');
+const chatRoutes = require('./chat.routes');
 // const itemRoutes = require('./item.routes');
 
 // Root route
@@ -23,6 +24,7 @@ router.use('/auth', authRoutes);
 router.use('/', dashboardRoutes); // Dashboard routes are mounted at the root
 router.use('/projects', projectsRoutes);
 router.use('/documents', documentRoutes);
+router.use('/chats', chatRoutes);
 // router.use('/items', itemRoutes);
 
 module.exports = router;

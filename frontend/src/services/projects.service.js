@@ -639,6 +639,16 @@ const submitAdminReview = async (projectId, reviewData) => {
   }
 };
 
+const tokenizeProject = async (projectId) => {
+  try {
+    const response = await api.post(`/projects/${projectId}/tokenize`);
+    return response.data;
+  } catch (error) {
+    console.error('Error tokenizing project:', error);
+    throw error;
+  }
+};
+
 
 // Export all service functions and constants
 export const projectsService = {
@@ -658,5 +668,6 @@ export const projectsService = {
   formatProjectData,
   submitReview,
   submitAdminReview,
-  getUserReview
+  getUserReview,
+  tokenizeProject
 };
