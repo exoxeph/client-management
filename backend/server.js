@@ -63,9 +63,13 @@ app.use(express.urlencoded({ extended: true }));
 // Static files
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Import routes
-const indexRoutes = require('./routes/index');
 
+// Import route modules
+const indexRoutes = require('./routes/index'); // Re-import indexRoutes
+const projectsRoutes = require('./routes/projectsRoutes'); // Directly import 
+app.use('/api/projects', projectsRoutes); // Mount it directly
+
+console.log('✅ Projects routes mounted directly to /api/projects');
 // Initialize Socket.io
 initializeSocket(io);
 
@@ -75,8 +79,26 @@ app.use((req, res, next) => {
   next();
 });
 
+// --- CRITICAL FIX: Explicitly require all Mongoose models here to ensure they are registered ---
+// These `require` calls ensure the model files execute and register their schemas with Mongoose.
+// IMPORTANT: Verify these paths match your project structure.
+require('./models/User');
+require('./models/Project');
+require('./models/Corporate');
+require('./models/Individual');
+require('./models/Chat');
+require('./models/Counter'); // Added Counter.js
+require('./models/Message'); // Added Message.js
+// If you have Task, Offer, Review, SwapRequest models elsewhere, you'll need to add their requires too,
+// but for now, we'll stick strictly to what's in your 'models' folder screenshot.
+// Assuming your Task, Offer, Review, SwapRequest are defined in other files not in this 'models' folder.
+
+console.log('✅ All Mongoose models explicitly loaded and registered.');
+// --- END CRITICAL FIX ---
+
+
 // Routes
-app.use('/api', indexRoutes);
+app.use('/api', indexRoutes); // This should now run AFTER all models are registered
 // Document routes are already included in indexRoutes, so this line is redundant
 // app.use('/api/documents', require('./routes/document.routes'));
 

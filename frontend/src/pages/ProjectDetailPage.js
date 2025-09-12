@@ -7,6 +7,7 @@ import { projectsService } from "../services/projects.service";
 import { useToast } from "../components/ui/Toast";
 import { RequirementsDisplay } from '../components/projects/RequirementsDisplay';
 import axios from 'axios';
+import { marked } from 'marked'; // Make sure to 'npm install marked' or 'yarn add marked'
 
 const SERVER_ROOT_URL = process.env.REACT_APP_SERVER_URL || 'http://localhost:5000';
 
@@ -134,6 +135,15 @@ export const ProjectDetailPage = () => {
   const { addToast } = useToast();
   const [isTokenizing, setIsTokenizing] = useState(false);
   const [isGeneratingContract, setIsGeneratingContract] = useState(false);
+  const [repoUrl, setRepoUrl] = useState('');
+  const [isSyncingCodebase, setIsSyncingCodebase] = useState(false);
+  const [codebaseQuestion, setCodebaseQuestion] = useState('');
+  const [codebaseAnswer, setCodebaseAnswer] = useState('');
+  const [isAskingCodebase, setIsAskingCodebase] = useState(false);
+  const [codebaseError, setCodebaseError] = useState('');
+  const [isIngestingToPinecone, setIsIngestingToPinecone] = useState(false); // RENAMED state for Pinecone ingestion loading
+
+  
 
   // Fetch project data
   useEffect(() => {
@@ -188,6 +198,9 @@ export const ProjectDetailPage = () => {
         console.log('Project attachments:', projectData.attachments);
         setProject(projectData);
         console.log('Project state set successfully');
+        if (projectData.codebase?.repoUrl) {
+          setRepoUrl(projectData.codebase.repoUrl);
+        }
       } catch (err) {
         console.error("Error fetching project:", err);
         console.error("Error response:", err.response);
@@ -286,6 +299,145 @@ export const ProjectDetailPage = () => {
       setIsGeneratingContract(false);
     }
   };
+      
+// --- NEW HANDLERS FOR CODEBASE INTEGRATION ---
+
+  const handleSyncCodebase = async () => {
+    console.log("[Sync Button] Clicked 'Sync Codebase'.");
+    setCodebaseError('');
+    setIsSyncingCodebase(true);
+    console.log("[Sync Button] isSyncingCodebase set to TRUE.");
+    try {
+      // Step 1: Initiate the sync (backend returns current pending state)
+      const initResponse = await projectsService.syncCodebase(project._id, repoUrl);
+      setProject(prevProject => ({
+          ...prevProject,
+          codebase: initResponse.project.codebase // Update to pending state
+      }));
+      addToast({ type: 'success', title: 'Codebase Sync Initiated', message: initResponse.message });
+      console.log("[Sync Button] Sync API call successful. Backend initiated background task.");
+
+      // Step 2: Poll for status updates (simple polling mechanism)
+      // This will check the project status periodically until it's no longer 'pending' or 'syncing_weaviate'
+      let currentProjectStatus = initResponse.project.codebase.status;
+      let attempts = 0;
+      const maxAttempts = 30; // Check for up to 30 * 2 seconds = 1 minute
+      const pollInterval = 2000; // Poll every 2 seconds
+
+      console.log("[Sync Button] Starting to poll for status updates...");
+
+      while (currentProjectStatus === 'pending' && attempts < maxAttempts) { // Only poll while 'pending'
+        await new Promise(resolve => setTimeout(resolve, pollInterval)); // Wait
+        const updatedProjectData = await projectsService.getProjectById(project._id); // Re-fetch full project
+        
+        if (updatedProjectData && updatedProjectData.codebase) {
+          if (updatedProjectData.codebase.status !== currentProjectStatus) {
+            console.log(`[Sync Button] Status updated from ${currentProjectStatus} to ${updatedProjectData.codebase.status}. Full codebase:`, updatedProjectData.codebase); // <<< NEW LOG
+            setProject(updatedProjectData); // Update frontend state with the NEW complete object
+            currentProjectStatus = updatedProjectData.codebase.status; // Update local status tracker
+            
+            // If status is no longer 'pending', break loop early
+            if (currentProjectStatus !== 'pending') {
+                break;
+            }
+          }
+        }
+        attempts++;
+      }
+      
+      // After the loop, ensure the project state is the latest
+      const finalUpdatedProject = await projectsService.getProjectById(project._id);
+      if (finalUpdatedProject) {
+        setProject(finalUpdatedProject); // One final update after polling
+        console.log("[Sync Button] Final project state after polling updated:", finalUpdatedProject.codebase);
+        currentProjectStatus = finalUpdatedProject.codebase.status;
+      }
+
+      if (currentProjectStatus === 'digest_created' || currentProjectStatus === 'completed') {
+        addToast({ type: 'success', title: 'Codebase Sync Complete', message: `Status: ${currentProjectStatus}` });
+      } else if (currentProjectStatus === 'failed') {
+        addToast({ type: 'error', title: 'Codebase Sync Failed', message: `Status: ${currentProjectStatus}. Check backend logs.` });
+      } else {
+        addToast({ type: 'warning', title: 'Codebase Sync Timed Out', message: 'Status is still pending. Check backend logs.' });
+      }
+
+    } catch (error) {
+      console.error('Codebase sync error:', error);
+      const errorMessage = error.response?.data?.message || 'Failed to sync codebase. Check backend logs.';
+      setCodebaseError(errorMessage);
+      addToast({ type: 'error', title: 'Codebase Sync Failed', message: errorMessage });
+      setProject(prevProject => ({
+        ...prevProject,
+        codebase: {
+          ...prevProject.codebase,
+          status: 'failed',
+          lastProcessedAt: new Date().toISOString()
+        }
+      }));
+      console.log("[Sync Button] Sync API call failed (outer catch).");
+    } finally {
+      setIsSyncingCodebase(false);
+      console.log("[Sync Button] isSyncingCodebase set to FALSE (from finally block).");
+    }
+  };
+  
+    const handleIngestToPinecone = async () => { // RENAMED
+    console.log("[Ingest Button] Clicked 'Ingest to Vector DB'.");
+    setCodebaseError('');
+    setIsIngestingToPinecone(true); // NEW state
+    console.log("[Ingest Button] isIngestingToPinecone set to TRUE.");
+    try {
+      const updatedProjectResponse = await projectsService.ingestToPinecone(project._id); // NEW SERVICE CALL
+      setProject(prevProject => ({
+          ...prevProject,
+          codebase: updatedProjectResponse.project.codebase
+      }));
+      addToast({ type: 'success', title: 'Vector DB Ingestion Started', message: 'Generating local embeddings and syncing to Pinecone.' }); // LOGS UPDATED
+      console.log("[Ingest Button] Ingestion API call successful.");
+    } catch (error) {
+      console.error('Pinecone ingestion error:', error); // LOG UPDATED
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to ingest to Pinecone.'; // MESSAGE UPDATED
+      setCodebaseError(errorMessage);
+      addToast({ type: 'error', title: 'Vector DB Ingestion Failed', message: errorMessage }); // LOG UPDATED
+      setProject(prevProject => ({
+        ...prevProject,
+        codebase: {
+          ...prevProject.codebase,
+          status: 'failed',
+          lastProcessedAt: new Date().toISOString()
+        }
+      }));
+      console.log("[Ingest Button] Ingestion API call failed.");
+    } finally {
+      setIsIngestingToPinecone(false); // NEW state
+      console.log("[Ingest Button] isIngestingToPinecone set to FALSE (from finally block).");
+    }
+  };
+
+    const handleAskCodebase = async () => {
+    console.log("[Ask Button] Clicked 'Get Answer'.");
+    setCodebaseError('');
+    setCodebaseAnswer('');
+    setIsAskingCodebase(true);
+    console.log("[Ask Button] isAskingCodebase set to TRUE.");
+    try {
+      // --- CRITICAL FIX: Call the correctly named service function ---
+      const response = await projectsService.askCodebasePinecone(project._id, codebaseQuestion); // <<< CORRECTED
+      // --- END CRITICAL FIX ---
+      setCodebaseAnswer(marked.parse(response.answer));
+      addToast({ type: 'success', title: 'Answer Retrieved' });
+      console.log("[Ask Button] Query API call successful.");
+    } catch (error) {
+      console.error('Ask codebase error:', error);
+      const errorMessage = error.response?.data?.message || 'Failed to get answer from codebase.';
+      setCodebaseError(errorMessage);
+      addToast({ type: 'error', title: 'Query Failed', message: errorMessage });
+      console.log("[Ask Button] Query API call failed.");
+    } finally {
+      setIsAskingCodebase(false);
+      console.log("[Ask Button] isAskingCodebase set to FALSE (from finally block).");
+    }
+  };
 
   // Show loading state
   if (isLoading || loading) {
@@ -296,7 +448,26 @@ export const ProjectDetailPage = () => {
     );
   }
 
+  // --- NEW: DEBUGGING CODEBASE RAG SECTION (TEMPORARY - REMOVE LATER) ---
+  console.log("--- DEBUGGING CODEBASE RAG SECTION ---");
+  console.log("project?.codebase?.status:", project?.codebase?.status);
+  console.log("project?.codebase?.jsonDigestFilePath:", project?.codebase?.jsonDigestFilePath);
+  console.log("project?.codebase?.weaviateClass:", project?.codebase?.weaviateClass);
+  console.log("isIngestingToPinecone state:", isIngestingToPinecone);
+  console.log("isSyncingCodebase state:", isSyncingCodebase);
+  console.log("Condition for 'Ingest to Vector DB' button (!jsonDigestFilePath):",
+    !project?.codebase?.jsonDigestFilePath);
+  console.log("Calculated 'Ingest' button disabled state:",
+    isIngestingToPinecone || isSyncingCodebase || !project?.codebase?.jsonDigestFilePath);
+  console.log("Condition for 'Ask a Question' (status === 'completed' && weaviateClass exists):",
+    project?.codebase?.status === 'completed' && !!project?.codebase?.weaviateClass);
+  console.log("------------------------------------");
+  // --- END DEBUGGING CODEBASE RAG SECTION ---
+
+  
   // Show error state
+  
+  
   if (error) {
     return (
       <DashboardLayout>
@@ -329,6 +500,8 @@ export const ProjectDetailPage = () => {
             </button>
           </div>
         </div>
+
+
       </DashboardLayout>
     );
   }
@@ -678,9 +851,142 @@ export const ProjectDetailPage = () => {
               )}
             </div>
           )}
-          {/* === END OF SECTION === */}
-        </div>
-        {/* Back to Projects Button */}
+          
+          {/* === END OF AI REQUIREMENTS SECTION === */}
+
+          {/* === NEW: CODEBASE ANALYSIS SECTION (Admin Only) === */}
+          {currentUser && currentUser.role === 'admin' && (
+            <div className="mb-10 p-6 rounded-lg bg-gray-50 shadow-md border border-gray-200">
+              <h2 className="text-xl font-bold mb-6 text-gray-900">
+                Codebase Analysis (RAG System)
+              </h2>
+
+              <div className="mb-4">
+                <label htmlFor="repoUrl" className="block text-sm font-medium text-gray-700 mb-2">
+                  GitHub Repository URL
+                </label>
+                <input
+                  type="url"
+                  id="repoUrl"
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                  placeholder="e.g., https://github.com/owner/repo"
+                  value={repoUrl}
+                  onChange={(e) => setRepoUrl(e.target.value)}
+                  disabled={isSyncingCodebase}
+                />
+              </div>
+
+                            <div className="flex flex-wrap gap-4 mb-4"> {/* Use flex-wrap and gap for buttons */}
+                <button
+                  onClick={handleSyncCodebase}
+                  disabled={isSyncingCodebase || isIngestingToPinecone || !repoUrl.trim()}
+                  className="px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-md hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                >
+                  {isSyncingCodebase ? (
+                    <>
+                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Syncing Codebase...
+                    </>
+                  ) : (
+                    '🔗 Sync Codebase'
+                  )}
+                </button>
+
+                                {/* Ingest to Vector DB button */}
+                {project?.codebase?.status === 'digest_created' && (
+                  <button
+                    onClick={handleIngestToPinecone} // NEW handler
+                    disabled={isIngestingToPinecone || isSyncingCodebase || !project?.codebase?.jsonDigestFilePath} // NEW state
+                    className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                  >
+                    {isIngestingToPinecone ? ( // NEW state
+                      <>
+                        <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Ingesting to Pinecone...
+                      </>
+                    ) : (
+                      '📤 Ingest to Pinecone' // NEW text
+                    )}
+                  </button>
+                )}
+              </div>
+
+              {codebaseError && (
+                <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">
+                  <strong className="font-bold">Error!</strong>
+                  <span className="block sm:inline"> {codebaseError}</span>
+                </div>
+              )}
+
+                            {project?.codebase?.status && (
+                <div className="mb-6 p-3 rounded-md bg-gray-100 text-sm text-gray-700">
+                                    <p><strong>Ingestion Status:</strong> <span className={`font-semibold ${
+                    project.codebase.status === 'completed' ? 'text-green-600' :
+                    project.codebase.status === 'failed' ? 'text-red-600' :
+                    project.codebase.status === 'digest_created' ? 'text-blue-600' :
+                    project.codebase.status === 'syncing_pinecone' ? 'text-indigo-600' : // NEW color
+                    'text-yellow-600'
+                  }`}>{project.codebase.status}</span></p>
+                  {project.codebase.lastProcessedAt && <p><strong>Last Processed:</strong> {new Date(project.codebase.lastProcessedAt).toLocaleString()}</p>}
+                  {project.codebase.pineconeIndexName && <p><strong>Pinecone Index:</strong> {project.codebase.pineconeIndexName}</p>} {/* LABEL UPDATED */}
+                </div>
+              )}
+
+                            {/* Ask a Question section (only if codebase ingestion to Weaviate is completed) */}
+              {project?.codebase?.status === 'completed' && project?.codebase?.pineconeIndexName && ( // NEW condition
+                <div className="mt-8 pt-6 border-t border-gray-200">
+                  <h3 className="text-lg font-semibold mb-4 text-gray-800">Ask a Question about the Codebase</h3>
+                  <div className="mb-4">
+                    <textarea
+                      id="codebaseQuestion"
+                      rows="3"
+                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                      placeholder="e.g., What are the main components of the authentication system?"
+                      value={codebaseQuestion}
+                      onChange={(e) => setCodebaseQuestion(e.target.value)}
+                      disabled={isAskingCodebase}
+                    ></textarea>
+                  </div>
+                  <div className="mb-4">
+                    <button
+                      onClick={handleAskCodebase}
+                      disabled={isAskingCodebase || !codebaseQuestion.trim()}
+                      className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                    >
+                      {isAskingCodebase ? (
+                        <>
+                          <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Getting Answer...
+                        </>
+                      ) : (
+                        '💬 Get Answer'
+                      )}
+                    </button>
+                  </div>
+                  {codebaseAnswer && (
+                    <div className="mt-4 p-4 rounded-md bg-white border border-gray-300 shadow-sm">
+                      <h4 className="font-semibold text-gray-800 mb-2">AI's Answer:</h4>
+                      {/* Render markdown output as HTML */}
+                      <div className="prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: codebaseAnswer }} />
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+          {/* === END OF CODEBASE ANALYSIS SECTION === */}
+        </div> {/* This closes the mt-6 p-6 rounded-lg bg-white shadow-md div */}
+
+        {/* Back to Projects Button (moved here) */}
         <div className="mt-8 flex justify-center print-hide">
           <button
             type="button"

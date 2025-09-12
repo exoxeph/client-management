@@ -3,7 +3,8 @@
  * This file contains methods for making project-related API calls to the backend
  */
 
-import api from './api';
+import api from './api'; // Assuming 'api' is your Axios instance configured with auth headers
+
 // Project statuses
 export const PROJECT_STATUS = {
   PENDING: "pending",
@@ -61,39 +62,39 @@ const getProjects = async (params = {}) => {
 const getProjectById = async (id) => {
   try {
     console.log('Making API request to fetch project:', id);
-    
+
     if (!id) {
       console.error('Invalid project ID provided:', id);
       throw new Error('Invalid project ID');
     }
-    
+
     // Ensure we're using a clean ID string
     const cleanId = id.toString().trim();
     console.log('Using cleaned project ID for request:', cleanId);
-    
+
     // Validate MongoDB ObjectId format (24 hex characters)
     const isValidObjectId = /^[0-9a-fA-F]{24}$/.test(cleanId);
     console.log('Is valid MongoDB ObjectId?', isValidObjectId);
-    
+
     if (!isValidObjectId) {
       console.error('Invalid MongoDB ObjectId format:', cleanId);
       throw new Error('Invalid project ID format');
     }
-    
+
     // Add debug logging to track the full URL being requested
     const requestUrl = `/projects/${cleanId}`;
     console.log('Full request URL:', requestUrl);
-    
+
     const response = await api.get(requestUrl);
     console.log('API response status:', response.status);
     console.log('API response data type:', typeof response.data);
-    console.log('API response data:', JSON.stringify(response.data, null, 2));
-    
+    // console.log('API response data:', JSON.stringify(response.data, null, 2)); // Keep this commented unless deep debugging
+
     if (!response.data) {
       console.error('No data returned from API');
       return null;
     }
-    
+
     // Add _id property to the response data for consistent ID handling
     if (!response.data._id && response.data.id) {
       console.log('Adding _id property to response data');
@@ -103,40 +104,41 @@ const getProjectById = async (id) => {
       console.log('No ID found in response data, using request ID');
       response.data._id = cleanId;
     }
-    
+
     // Ensure the _id is a string for consistent comparison
     if (response.data._id) {
       response.data._id = response.data._id.toString();
       console.log('Normalized _id for consistent comparison:', response.data._id);
     }
-    
+
     // Ensure arrays are properly initialized
-    const arrayFields = ['features', 'userRoles', 'integrations', 'nonFunctionalRequirements', 
-                         'acceptanceCriteria', 'successMetrics', 'platforms', 'techStack', 
-                         'securityRequirements', 'milestones', 'files', 'repoUrls'];
-    
+    // NOTE: These array initializations might need refinement based on your exact schema and how you expect data back.
+    // For nested objects like `project.scope.features`, the frontend might need to check `project.scope?.features`
+    const arrayFields = ['features', 'userRoles', 'integrations', 'milestones', 'files', 'repoUrls'];
+
     arrayFields.forEach(field => {
+      // This logic assumes top-level fields for simplicity; for nested fields, you'd need more complex checks.
       if (!response.data[field]) {
-        console.log(`Initializing missing array field: ${field}`);
         response.data[field] = [];
       } else if (!Array.isArray(response.data[field])) {
-        console.log(`Converting non-array field to array: ${field}`);
-        response.data[field] = [response.data[field]].filter(Boolean);
+        // If it's a string, try splitting it into an array
+        response.data[field] = String(response.data[field]).split(',').map(item => item.trim()).filter(Boolean);
       }
     });
-    
+
+
     // Ensure status field exists
     if (!response.data.status) {
       console.log('Status field missing, setting default status');
       response.data.status = PROJECT_STATUS.DRAFT;
     }
-    
+
     console.log('Returning project data with ID:', response.data._id);
     return response.data;
   } catch (error) {
     console.error(`Error fetching project ${id}:`, error);
     console.error('Error details:', error.response ? error.response.data : 'No response data');
-    
+
     // For 403 errors, we want to throw the error so it can be handled by the component
     // This ensures the component can display the proper error message
     if (error.response && error.response.status === 403) {
@@ -144,13 +146,13 @@ const getProjectById = async (id) => {
       error.isPermissionError = true;
       throw error;
     }
-    
+
     // For 404 errors, we can return null
     if (error.response && error.response.status === 404) {
       console.log('Handling 404 Not Found error gracefully');
       return null;
     }
-    
+
     throw error;
   }
 };
@@ -178,6 +180,17 @@ const getProjectsSummary = async (isAdmin = false) => {
  * @returns {Object} Formatted project data
  */
 const formatProjectData = (projectData) => {
+  // Helper function to process array fields from potentially comma-separated strings
+  function processArrayField(field) {
+    if (Array.isArray(field)) {
+      return field;
+    } else if (field && typeof field === 'string') {
+      return field.split(',').map(item => item.trim()).filter(item => item);
+    } else {
+      return [];
+    }
+  }
+
   // Create a formatted data object that matches the backend schema
   const formattedData = {
     overview: {
@@ -198,8 +211,8 @@ const formatProjectData = (projectData) => {
       platforms: processArrayField(projectData.platforms),
       stack: processArrayField(projectData.techStack),
       hosting: Array.isArray(projectData.hostingPreference) ? projectData.hostingPreference.join(', ') : projectData.hostingPreference || '',
-      security: Array.isArray(projectData.securityRequirements) 
-        ? projectData.securityRequirements.join(', ') 
+      security: Array.isArray(projectData.securityRequirements)
+        ? projectData.securityRequirements.join(', ')
         : projectData.securityRequirements || '',
       dataClass: Array.isArray(projectData.dataClassification) ? projectData.dataClassification.join(', ') : projectData.dataClassification || ''
     },
@@ -216,32 +229,21 @@ const formatProjectData = (projectData) => {
       commsPreference: Array.isArray(projectData.communicationPreference) ? projectData.communicationPreference[0] : projectData.communicationPreference || 'email'
     }
   };
-  
-  // Helper function to process array fields
-  function processArrayField(field) {
-    if (Array.isArray(field)) {
-      return field;
-    } else if (field && typeof field === 'string') {
-      return field.split(',').map(item => item.trim()).filter(item => item);
-    } else {
-      return [];
-    }
-  }
-  
+
   // Add repos if available
   if (projectData.repoUrls && projectData.repoUrls.length > 0) {
-    formattedData.repos = Array.isArray(projectData.repoUrls) 
+    formattedData.repos = Array.isArray(projectData.repoUrls)
       ? projectData.repoUrls.map(url => ({ url }))
       : [{ url: projectData.repoUrls }];
   }
-  
+
   // Add legal information if available
   if (projectData.ndaRequired !== undefined) {
     formattedData.legal = {
       ndaRequired: Boolean(projectData.ndaRequired)
     };
   }
-  
+
   return formattedData;
 };
 
@@ -259,7 +261,7 @@ const createDraft = async (projectData) => {
     if (!projectData.businessGoal) {
       throw new Error('Business goal is required');
     }
-    
+
     const formattedData = formatProjectData(projectData);
     const response = await api.post('/projects/draft', formattedData);
     // Ensure the response includes _id for consistent ID handling
@@ -288,14 +290,14 @@ const updateDraft = async (projectId, projectData) => {
     if (!projectData.businessGoal) {
       throw new Error('Business goal is required');
     }
-    
+
     console.log('Original project data:', JSON.stringify(projectData, null, 2));
     const formattedData = formatProjectData(projectData);
     console.log('Formatted data to send to backend:', JSON.stringify(formattedData, null, 2));
-    
+
     const response = await api.patch(`/projects/${projectId}/draft`, formattedData);
     console.log('Backend response:', JSON.stringify(response.data, null, 2));
-    
+
     // Ensure the response includes _id for consistent ID handling
     if (response.data && !response.data._id && response.data.projectId) {
       response.data._id = response.data.projectId;
@@ -386,48 +388,48 @@ const getAllProjects = async (isAdmin = false, verdict = null, searchTerm = null
   try {
     // Build the URL with query parameters
     const params = new URLSearchParams();
-    
+
     // Add admin parameter if needed
     if (isAdmin) {
       params.append('admin', 'true');
     }
-    
+
     // Add verdict filter if provided and not 'all'
     if (verdict && verdict !== 'all') {
       params.append('verdict', verdict);
     }
-    
+
     // Add search term if provided
     if (searchTerm && searchTerm.trim() !== '') {
       params.append('q', searchTerm.trim());
     }
-    
+
     // Determine the base URL
     const baseUrl = isAdmin ? '/projects' : '/projects/all';
-    
+
     // Construct the full URL
     const url = params.toString() ? `${baseUrl}?${params.toString()}` : baseUrl;
-    
+
     console.log('Fetching projects with URL:', url);
     const response = await api.get(url);
-    
+
     // Process the response
     if (!response.data) {
       console.warn('No data returned from API');
       return [];
     }
-    
+
     // Handle different response formats
     if (Array.isArray(response.data)) {
       console.log('Response is an array with', response.data.length, 'items');
       return response.data;
-    } 
-    
+    }
+
     if (response.data.items && Array.isArray(response.data.items)) {
       console.log('Response has items array with', response.data.items.length, 'items');
       return response.data.items;
-    } 
-    
+    }
+
     if (typeof response.data === 'object') {
       // Check for paginated response structure
       if (response.data.items && Array.isArray(response.data.items)) {
@@ -454,7 +456,7 @@ const getPendingVerdictProjects = async () => {
     // First try the dedicated endpoint for pending verdict projects
     try {
       const response = await api.get('/projects/pending');
-      
+
       // If we get a successful response, process it
       if (Array.isArray(response.data)) {
         return response.data;
@@ -465,15 +467,15 @@ const getPendingVerdictProjects = async () => {
       console.warn('Pending endpoint failed, falling back to filtered endpoint:', endpointError);
       // If the dedicated endpoint fails, fall back to the filtered approach
     }
-    
+
     // Fallback: Use the existing listProjects endpoint with verdict filter
-    const response = await api.get('/projects', { 
-      params: { 
+    const response = await api.get('/projects', {
+      params: {
         verdict: PROJECT_VERDICT.PENDING,
         limit: 100 // Get a reasonable number of pending projects
-      } 
+      }
     });
-    
+
     // Check if response.data exists and has the expected structure
     if (response.data && response.data.items) {
       return response.data.items;
@@ -503,15 +505,15 @@ const updateProjectVerdict = async (projectId, verdict) => {
     if (!projectId) {
       throw new Error('Project ID is required');
     }
-    
+
     if (verdict !== PROJECT_VERDICT.CONFIRMED && verdict !== PROJECT_VERDICT.REJECTED) {
       throw new Error('Invalid verdict value');
     }
-    
-    const endpoint = verdict === PROJECT_VERDICT.CONFIRMED 
-      ? `/projects/${projectId}/confirm` 
+
+    const endpoint = verdict === PROJECT_VERDICT.CONFIRMED
+      ? `/projects/${projectId}/confirm`
       : `/projects/${projectId}/reject`;
-    
+
     const response = await api.post(endpoint);
     return response.data;
   } catch (error) {
@@ -533,21 +535,21 @@ const submitReview = async (projectId, reviewData) => {
     if (!projectId) {
       throw new Error('Project ID is required');
     }
-    
+
     if (!reviewData || !reviewData.rating || !reviewData.comment) {
       throw new Error('Rating and comment are required');
     }
-    
+
     console.log('Submitting review for project:', projectId);
     console.log('Review data:', JSON.stringify(reviewData));
-    
+
     // Call the actual API endpoint for submitting reviews
     const response = await api.post(`/projects/${projectId}/reviews`, reviewData);
     console.log('Review submission successful:', response.data);
     return response.data;
   } catch (error) {
     console.error('Error submitting review:', error);
-    
+
     // Enhanced error logging
     if (error.response) {
       console.error('Error response status:', error.response.status);
@@ -558,7 +560,7 @@ const submitReview = async (projectId, reviewData) => {
     } else {
       console.error('Error message:', error.message);
     }
-    
+
     throw error;
   }
 };
@@ -573,20 +575,20 @@ const getUserReview = async (projectId) => {
     if (!projectId) {
       throw new Error('Project ID is required');
     }
-    
+
     // Get the project with reviews
     const project = await getProjectById(projectId);
-    
+
     if (!project || !project.reviews) {
       return null;
     }
-    
+
     // Get current user ID from localStorage
     const user = JSON.parse(localStorage.getItem('user'));
     if (!user || !user.id) {
       return null;
     }
-    
+
     // Find the review by the current user
     // Convert userId to string for proper comparison, with null checks
     const userReview = project.reviews.find(review => {
@@ -595,7 +597,7 @@ const getUserReview = async (projectId) => {
         console.log('Skipping review with missing or invalid userId');
         return false;
       }
-      
+
       // Convert both IDs to strings for consistent comparison
       return review.userId.toString() === user.id.toString();
     });
@@ -659,23 +661,76 @@ const generateContract = async (projectId) => {
     if (!projectId) {
       throw new Error('Project ID is required');
     }
-    
+
     console.log('Generating contract for project:', projectId);
     const response = await api.post(`/projects/${projectId}/generate-contract`);
     console.log('Contract generation successful:', response.data);
     return response.data;
   } catch (error) {
     console.error('Error generating contract:', error);
-    
+
     // Enhanced error logging
     if (error.response) {
       console.error('Error response status:', error.response.status);
       console.error('Error response data:', error.response.data);
     }
-    
+
     throw error;
   }
 };
+
+// --- NEW RAG RELATED FUNCTIONS ---
+/**
+ * Initiates the synchronization of a GitHub repository's codebase to Weaviate.
+ * @param {string} projectId - The ID of the project.
+ * @param {string} repoUrl - The URL of the GitHub repository.
+ * @returns {Promise<Object>} Promise resolving to the updated project with codebase status.
+ */
+const syncCodebase = async (projectId, repoUrl) => {
+  try {
+    if (!projectId || !repoUrl) {
+      throw new Error('Project ID and Repository URL are required to sync codebase.');
+    }
+    console.log(`Initiating codebase sync for project ${projectId} with URL: ${repoUrl}`);
+    const response = await api.post(`/projects/${projectId}/codebase/sync`, { repoUrl });
+    console.log('Codebase sync initiation successful:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error(`Error initiating codebase sync for project ${projectId}:`, error);
+    if (error.response) {
+      console.error('Error response data:', error.response.data);
+    }
+    throw error;
+  }
+};
+
+/**
+ * Asks a question about the project's codebase, retrieving answers from the RAG system.
+ * @param {string} projectId - The ID of the project.
+ * @param {string} question - The question to ask about the codebase.
+ * @returns {Promise<Object>} Promise resolving to the AI's answer.
+ */
+const askCodebasePinecone = async (projectId, question) => { // RENAMED
+    if (!projectId || !question) {
+      throw new Error('Project ID and a question are required to query the codebase.');
+    }
+    console.log(`Asking codebase (Pinecone) for project ${projectId}. Question: "${question}"`); // LOG UPDATED
+    const response = await api.post(`/projects/${projectId}/codebase/ask`, { question }); // ROUTE IS THE SAME
+    console.log('Pinecone codebase query successful:', response.data); // LOG UPDATED
+    return response.data;
+  };
+
+  const ingestToPinecone = async (projectId) => { // RENAMED
+    if (!projectId) {
+      throw new Error('Project ID is required to ingest to Pinecone.');
+    }
+    console.log(`Initiating Pinecone ingestion for project ${projectId}`); // LOG UPDATED
+    const response = await api.post(`/projects/${projectId}/codebase/ingest-pinecone`); // ROUTE UPDATED
+    console.log('Pinecone ingestion initiation successful:', response.data); // LOG UPDATED
+    return response.data;
+  };
+
+// --- END NEW RAG RELATED FUNCTIONS ---
 
 
 // Export all service functions and constants
@@ -686,7 +741,6 @@ export const projectsService = {
   createDraft,
   updateDraft,
   submitProject,
-  // uploadAttachments removed
   formatDate,
   formatRelativeTime,
   getAllProjects,
@@ -696,7 +750,9 @@ export const projectsService = {
   formatProjectData,
   submitReview,
   submitAdminReview,
-  getUserReview,
   tokenizeProject,
-  generateContract
+  generateContract,
+  syncCodebase, // New export
+  askCodebasePinecone,  // New export
+  ingestToPinecone
 };

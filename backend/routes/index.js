@@ -25,6 +25,7 @@ router.use('/', dashboardRoutes); // Dashboard routes are mounted at the root
 router.use('/projects', projectsRoutes);
 router.use('/documents', documentRoutes);
 router.use('/chats', chatRoutes);
+// router.use('/projects', require('./projectsRoutes'));
 // router.use('/items', itemRoutes);
 
 module.exports = router;
