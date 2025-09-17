@@ -1,6 +1,7 @@
 /**
  * MessageInput Component
  * Input form for typing and sending messages in the active chat
+ * BARE VISUAL – no extra boxes; logic unchanged
  */
 
 import React, { useState, useRef, useEffect } from 'react';
@@ -23,28 +24,19 @@ const MessageInput = () => {
 
   const handleSendMessage = async () => {
     if (!messageText.trim() || !activeChat || isSending) return;
-
     setIsSending(true);
     const textToSend = messageText.trim();
-    
+
     try {
-      // Clear the input immediately for better UX
       setMessageText('');
-      
-      // Stop typing indicator
       if (typingTimeoutRef.current) {
         clearTimeout(typingTimeoutRef.current);
         stopTyping(activeChat._id);
       }
-      
-      // Send the message
       await sendMessage(activeChat._id, textToSend);
-      
-      // Focus back to textarea
       textareaRef.current?.focus();
     } catch (error) {
       console.error('Error sending message:', error);
-      // Restore message text on error
       setMessageText(textToSend);
     } finally {
       setIsSending(false);
@@ -53,39 +45,22 @@ const MessageInput = () => {
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter') {
-      if (e.shiftKey) {
-        // Shift + Enter = new line, let default behavior happen
-        return;
-      } else {
-        // Enter = send message
-        e.preventDefault();
-        handleSendMessage();
-      }
+      if (e.shiftKey) return; // newline
+      e.preventDefault();
+      handleSendMessage();
     }
   };
 
   const handleInputChange = (e) => {
     const value = e.target.value;
     setMessageText(value);
-
     if (!activeChat) return;
 
-    // Handle typing indicators
     if (value.trim()) {
-      // Start typing indicator
       startTyping(activeChat._id);
-      
-      // Clear existing timeout
-      if (typingTimeoutRef.current) {
-        clearTimeout(typingTimeoutRef.current);
-      }
-      
-      // Set timeout to stop typing after 3 seconds of inactivity
-      typingTimeoutRef.current = setTimeout(() => {
-        stopTyping(activeChat._id);
-      }, 3000);
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = setTimeout(() => stopTyping(activeChat._id), 3000);
     } else {
-      // Stop typing if input is empty
       if (typingTimeoutRef.current) {
         clearTimeout(typingTimeoutRef.current);
         stopTyping(activeChat._id);
@@ -93,73 +68,59 @@ const MessageInput = () => {
     }
   };
 
-  // Cleanup typing timeout on unmount
   useEffect(() => {
     return () => {
-      if (typingTimeoutRef.current) {
-        clearTimeout(typingTimeoutRef.current);
-      }
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     };
   }, []);
 
-  if (!activeChat) {
-    return null;
-  }
+  if (!activeChat) return null;
+
+  const tooLong = messageText.length > 800;
 
   return (
-    <div className="border-t border-gray-200 p-4 bg-white">
-      <div className="flex items-end space-x-2">
-        {/* Message Input */}
-        <div className="flex-1 relative">
-          <textarea
-            ref={textareaRef}
-            value={messageText}
-            onChange={handleInputChange}
-            onKeyDown={handleKeyDown}
-            placeholder="Type a message... (Enter to send, Shift+Enter for new line)"
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            style={{
-              minHeight: '40px',
-              maxHeight: '120px'
-            }}
-            disabled={isSending}
-          />
-          
-          {/* Character counter for very long messages */}
-          {messageText.length > 800 && (
-            <div className="absolute bottom-1 right-2 text-xs text-gray-400">
-              {messageText.length}/1000
-            </div>
-          )}
-        </div>
-
-        {/* Send Button */}
-        <button
-          onClick={handleSendMessage}
-          disabled={!messageText.trim() || isSending}
-          className={`px-4 py-2 rounded-lg font-medium transition-colors duration-200 ${
-            messageText.trim() && !isSending
-              ? 'bg-blue-600 hover:bg-blue-700 text-white'
-              : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-          }`}
-          aria-label="Send message"
-        >
-          {isSending ? (
-            <svg className="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-          ) : (
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-            </svg>
-          )}
-        </button>
+    <div className="flex items-end gap-2">
+      {/* Input */}
+      <div className="relative flex-1">
+        <textarea
+          ref={textareaRef}
+          value={messageText}
+          onChange={handleInputChange}
+          onKeyDown={handleKeyDown}
+          placeholder="Type a message… (Enter to send, Shift+Enter for new line)"
+          className="w-full resize-none rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          style={{ minHeight: '40px', maxHeight: '140px' }}
+          disabled={isSending}
+        />
+        {tooLong && (
+          <div className="pointer-events-none absolute bottom-1 right-3 rounded bg-white/90 px-1.5 py-0.5 text-[11px] text-gray-500 ring-1 ring-gray-200">
+            {messageText.length}/1000
+          </div>
+        )}
       </div>
 
-      {/* Typing Indicator Space */}
-      <div className="mt-2 h-4">
-        {/* This space will be used for typing indicators in future */}
-      </div>
+      {/* Send */}
+      <button
+        onClick={handleSendMessage}
+        disabled={!messageText.trim() || isSending}
+        aria-label="Send message"
+        className={`inline-flex h-10 items-center justify-center rounded-xl px-4 text-sm font-medium transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 ${
+          messageText.trim() && !isSending
+            ? 'bg-indigo-600 text-white hover:-translate-y-0.5 hover:bg-indigo-700 shadow-sm'
+            : 'bg-gray-200 text-gray-500 cursor-not-allowed'
+        }`}
+      >
+        {isSending ? (
+          <svg className="h-5 w-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+        ) : (
+          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+          </svg>
+        )}
+      </button>
     </div>
   );
 };

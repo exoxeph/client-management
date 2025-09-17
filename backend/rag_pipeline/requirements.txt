@@ -1,0 +1,11 @@
+# rag_pipeline/requirements.txt
+cocoindex[embeddings]
+gitingest
+python-dotenv
+transformers
+torch
+sentence-transformers
+neo4j
+pinecone
+sqlalchemy
+psycopg2-binary

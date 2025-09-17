@@ -192,7 +192,7 @@ const ActivityLogSchema = new mongoose.Schema({
   },
   by: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'User', // Ensure this matches your User model name
+    ref: 'user', // Ensure this matches your User model name
     required: [true, 'User ID is required']
   },
   note: {
@@ -205,7 +205,7 @@ const ActivityLogSchema = new mongoose.Schema({
 const ReviewSchema = new mongoose.Schema({
   userId: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'User', // Ensure this matches your User model name
+    ref: 'user', // Ensure this matches your User model name
     required: [true, 'User ID is required']
   },
   rating: {
@@ -243,7 +243,7 @@ const AIRequirementsSchema = new mongoose.Schema({
 
 // Schema for Admin Review
 const AdminReviewSchema = new mongoose.Schema({
-  adminId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  adminId: { type: mongoose.Schema.Types.ObjectId, ref: 'user' },
   professionalism: Number,
   communication: Number,
   clarityOfRequirements: Number,
@@ -308,7 +308,7 @@ const ProjectSchema = new mongoose.Schema({
   },
   ownerUserId: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'User', // Ensure this matches your User model name
+    ref: 'user', // Ensure this matches your User model name
     required: [true, 'Owner user ID is required']
   },
   ownerRole: {
