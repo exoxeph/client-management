@@ -1,0 +1,106 @@
+# Render Blueprint: Defines all services for the ClientManager Pro project.
+# This file should be in the root of your GitHub repository.
+
+services:
+  # --- 1. PostgreSQL Database (for CocoIndex) ---
+  # Render will create and manage this database for you.
+  - type: pserv
+    name: cocoindex-postgres
+    # The 'pserv' type is for Render's managed services (like databases).
+    database:
+      name: cocoindexdb # You can name the database anything you like.
+      plan: free      # Use Render's free tier for PostgreSQL.
+    # We specify a rootDir so Render knows this service relates to the backend.
+    rootDir: backend/rag_pipeline 
+
+  # --- 2. Redis Database (for LLM Caching) ---
+  # Render will also manage this Redis instance.
+  - type: pserv
+    name: llm-cache-redis
+    redis:
+      plan: free      # Use Render's free tier for Redis.
+    rootDir: backend
+
+  # --- 3. Node.js Backend API (Your Express.js Server) ---
+  # This is a public-facing web service.
+  - type: web
+    name: exoxeph-backend-api
+    # Tell Render to build this service from a Dockerfile.
+    runtime: docker
+    # Provide the path to the *correct* Dockerfile for the backend API.
+    dockerfilePath: ./backend/Dockerfile
+    # The rootDir tells Render where to look for the dockerfilePath.
+    rootDir: backend
+    # Environment variables for the backend API.
+    # 'fromSecret' tells Render to get these values from a Secret Group you will create.
+    # 'fromService' automatically gets the connection string from another Render service.
+    envVars:
+      - key: MONGODB_URI
+        fromSecret: MONGODB_URI
+      - key: JWT_SECRET
+        fromSecret: JWT_SECRET
+      - key: GEMINI_API_KEY
+        fromSecret: GEMINI_API_KEY
+      # Pinecone credentials
+      - key: PINECONE_API_KEY
+        fromSecret: PINECONE_API_KEY
+      - key: PINECONE_ENVIRONMENT
+        fromSecret: PINECONE_ENVIRONMENT
+      - key: PINECONE_INDEX_NAME
+        fromSecret: PINECONE_INDEX_NAME
+      # Neo4j AuraDB credentials
+      - key: NEO4J_URI
+        fromSecret: NEO4J_URI
+      - key: NEO4J_USER
+        fromSecret: NEO4J_USER
+      - key: NEO4J_PASSWORD
+        fromSecret: NEO4J_PASSWORD
+      # Redis connection string (auto-injected from our Redis service)
+      - key: REDIS_URL
+        fromService:
+          type: pserv
+          name: llm-cache-redis
+          property: connectionString
+
+  # --- 4. Python RAG Worker (Your CocoIndex Pipeline) ---
+  # This is a background service that runs continuously.
+  - type: worker
+    name: cocoindex-rag-worker
+    runtime: docker
+    # Provide the path to the *correct* Dockerfile for the Python worker.
+    dockerfilePath: ./backend/rag_pipeline/Dockerfile
+    rootDir: backend/rag_pipeline
+    # Mount a Persistent Disk to store cloned Git repositories.
+    disks:
+      - name: cloned-repos-disk
+        mountPath: /app/cloned_repos
+        sizeGB: 10 # Start with 10 GB.
+    # Environment variables for the RAG worker.
+    envVars:
+      - key: GEMINI_API_KEY # May be needed for future LLM functions in CocoIndex
+        fromSecret: GEMINI_API_KEY
+      # Pinecone credentials
+      - key: PINECONE_API_KEY
+        fromSecret: PINECONE_API_KEY
+      - key: PINECONE_ENVIRONMENT
+        fromSecret: PINECONE_ENVIRONMENT
+      - key: PINECONE_INDEX_NAME
+        fromSecret: PINECONE_INDEX_NAME
+      # Neo4j AuraDB credentials
+      - key: NEO4J_URI
+        fromSecret: NEO4J_URI
+      - key: NEO4J_USER
+        fromSecret: NEO4J_USER
+      - key: NEO4J_PASSWORD
+        fromSecret: NEO4J_PASSWORD
+      # PostgreSQL connection string (auto-injected from our Postgres service)
+      - key: COCOINDEX_DATABASE_URL
+        fromService:
+          type: pserv
+          name: cocoindex-postgres
+          property: connectionString
+      # Ollama configuration
+      - key: OLLAMA_MODEL
+        value: llama3
+      - key: OLLAMA_BASE_URL
+        value: "http://localhost:11434/api"

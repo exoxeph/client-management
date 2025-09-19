@@ -38,7 +38,8 @@ const {
   downloadContract,
   syncCodebase,
   ingestToPinecone,
-  askCodebasePinecone 
+  askCodebasePinecone,
+  askCodebaseV2 
 } = require('../controllers/projectsController');
 
 
@@ -107,7 +108,7 @@ router.get('/:id/download-contract', protect, downloadContract);
 router.post('/:id/codebase/sync', protect, admin, syncCodebase); // Preprocessing remains the same
 router.post('/:id/codebase/ingest-pinecone', protect, admin, ingestToPinecone); // NEW: Pinecone ingestion route
 router.post('/:id/codebase/ask', protect, admin, askCodebasePinecone); // NEW: Pinecone ask route
-
+router.post('/:id/codebase/ask-v2', protect, admin, askCodebaseV2);
   
 
 // Export the router instance for use in server.js

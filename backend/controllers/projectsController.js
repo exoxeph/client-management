@@ -19,6 +19,7 @@ const { Pinecone } = require('@pinecone-database/pinecone');
 // const WEAVIATE_API_KEY = process.env.WEAVIATE_API_KEY;
 // --- Transformers.js for Local Embeddings ---
 const { pipeline, Float32Array } = require('@xenova/transformers'); // NEW: Import Transformers.js pipeline
+const ragService = require('../services/rag.service');
 
 
 let textEmbeddingPipeline = null;
@@ -1313,7 +1314,66 @@ ${context}
   }
 };
 
+/**
+ * @desc    Ask a question about the project's codebase using the V2 RAG pipeline.
+ * @route   POST /api/projects/:id/codebase/ask-v2
+ * @access  Private/Admin
+ */
+const askCodebaseV2 = async (req, res) => {
+  try {
+    const { id: projectId } = req.params;
+    const { question } = req.body;
+
+    if (!question) {
+      return res.status(400).json({ success: false, message: 'A question is required.' });
+    }
+
+    const project = await Project.findById(projectId);
+    if (!project) {
+      return res.status(404).json({ success: false, message: 'Project not found.' });
+    }
+
+    // The Pinecone index name is stored on the project document
+    const pineconeIndexName = project.codebase?.pineconeIndexName;
+    if (!pineconeIndexName) {
+        return res.status(400).json({ success: false, message: 'Project codebase has not been indexed yet. Please ingest to Pinecone first.' });
+    }
+
+    // Call the centralized RAG service
+    const result = await ragService.ask(question, pineconeIndexName);
+    
+    res.status(200).json({ success: true, ...result });
+
+  } catch (error) {
+    console.error('Error in askCodebaseV2 controller:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get an answer from the RAG pipeline.',
+      error: error.message,
+    });
+  }
+};
 
 
 
-module.exports = { createProject, createDraft, updateDraft, updateProject, submitProject, getProject, getProjectSummary, listProjects, uploadAttachments, submitAdminReview, confirmProject, rejectProject, submitReview, tokenizeProject, generateContract, downloadContract, syncCodebase, ingestToPinecone, askCodebasePinecone, };
+module.exports = { 
+  createProject, 
+  createDraft, 
+  updateDraft, 
+  updateProject, 
+  submitProject, 
+  getProject, 
+  getProjectSummary, 
+  listProjects, 
+  uploadAttachments, 
+  submitAdminReview, 
+  confirmProject, 
+  rejectProject, 
+  submitReview, 
+  tokenizeProject, 
+  generateContract, 
+  downloadContract, 
+  syncCodebase, 
+  ingestToPinecone, 
+  askCodebasePinecone, 
+  askCodebaseV2  };

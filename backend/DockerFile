@@ -1,0 +1,27 @@
+# File: backend/Dockerfile
+
+# --- Stage 1: Build Dependencies ---
+# Use a Node.js version that matches your development environment.
+FROM node:18-alpine AS deps
+WORKDIR /app
+
+# Copy package.json and package-lock.json to leverage Docker layer caching.
+COPY package.json package-lock.json ./
+# Use --omit=dev to skip development dependencies in production.
+RUN npm install --omit=dev
+
+# --- Stage 2: Build the Production Image ---
+FROM node:18-alpine AS runner
+WORKDIR /app
+
+# Copy the installed dependencies from the 'deps' stage.
+COPY --from=deps /app/node_modules ./node_modules
+
+# Copy the rest of your application code.
+COPY . .
+
+# Expose the port your server runs on (from your .env file).
+EXPOSE 5000
+
+# Command to start your server.
+CMD ["node", "server.js"]
